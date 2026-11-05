@@ -17,7 +17,7 @@ import time
 from datetime import date, timedelta
 
 from ..models import Article
-from ..timeutils import now_ist
+from ..timeutils import end_of_local_day, is_date_only, now_ist
 from ._rss import FeedItem, parse_feed
 from .base import PartialResult, Source, register
 
@@ -59,17 +59,26 @@ class GoogleNews(Source):
 
     def _search(self, query: str) -> list[Article]:
         resp = self.http.get(GOOGLE_NEWS_RSS, params={"q": query, "hl": "en-IN", "gl": "IN", "ceid": "IN:en"})
-        return [
-            Article(
-                source=self.name,
-                source_type="news",
-                title=_strip_publisher_suffix(it.title, it.publisher),
-                url=it.link,
-                published_at=it.published_at,
-                publisher=it.publisher,
+        out = []
+        for it in parse_feed(resp.content):
+            published, meta = it.published_at, {}
+            if self.settings.date_only_policy == "end_of_day" and is_date_only(published):
+                # Date-only item: place it at the latest moment it could have appeared, so
+                # it lands in the NEXT session's window instead of the one it may postdate.
+                meta = {"time_precision": "date", "reported_published_at": published.isoformat()}
+                published = end_of_local_day(published)
+            out.append(
+                Article(
+                    source=self.name,
+                    source_type="news",
+                    title=_strip_publisher_suffix(it.title, it.publisher),
+                    url=it.link,
+                    published_at=published,
+                    publisher=it.publisher,
+                    meta=meta,
+                )
             )
-            for it in parse_feed(resp.content)
-        ]
+        return out
 
     def fetch(self, ticker, start, end, notes):
         query = self.build_query(ticker, start, end)

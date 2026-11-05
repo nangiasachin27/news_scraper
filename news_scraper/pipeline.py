@@ -13,7 +13,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from .classifier import classify
+from .classifier import MECHANICAL_TAG, classify, is_mechanical, is_price_recap
 from .config import Settings
 from .dedup import dedupe
 from .enrich import Enricher, text_source
@@ -169,6 +169,16 @@ class NewsPipeline:
                 # Classify media on the headline only: RSS summaries often carry
                 # boilerplate ("...results, dividend and more") that skews rules.
                 text = a.title
+                if is_mechanical(a.title):
+                    # "shares fall as stock turns ex-dividend": an exchange price
+                    # adjustment, not news about the company. Kept for the record,
+                    # weighted zero by the sentiment engine via the tag.
+                    if MECHANICAL_TAG not in a.tags:
+                        a.tags.append(MECHANICAL_TAG)
+                    a.category, a.impact_tier = "corporate_action_news", "low"
+                    stats["mechanical_tagged"] = stats.get("mechanical_tagged", 0) + 1
+                if is_price_recap(a.title) and "price_recap" not in a.tags:
+                    a.tags.append("price_recap")  # describes a move already in the price
             else:
                 text = f"{a.title} {a.summary or ''}"
             if a.category is None or a.impact_tier is None:

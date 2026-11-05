@@ -116,6 +116,10 @@ class SentimentEngine:
                 "category": art.get("category"),
                 "impact_tier": art.get("impact_tier"),
                 "text_source": (art.get("meta") or {}).get("text_source"),
+                # "date" = the feed gave only a date; published_at is then end of that day.
+                # Backtests use this to decide when the item was knowable.
+                "time_precision": (art.get("meta") or {}).get("time_precision", "exact"),
+                "tags": art.get("tags") or [],
                 "weight": round(weight, 4),
                 "weight_factors": factors,
                 "excluded_reason": None if weight > 0 else "zero_weight",

@@ -73,7 +73,8 @@ def test_resolver_offline_fallback_has_no_bare_symbol_alias(settings):
 
     offline = replace(settings, reference_dir=settings.reference_dir / "empty")
     info = TickerResolver(offline, FakeHttp({"nseindia": OSError("down"), "bseindia": OSError("down")})).resolve("RELIANCE")
-    assert info.aliases == ["Reliance Industries"]
+    assert info.aliases[0] == "Reliance Industries"
+    assert "RELIANCE" not in info.aliases  # bare symbol never a case-insensitive alias
     assert info.bse_code is None
 
 
@@ -95,6 +96,7 @@ def reliance():
         company_name="Reliance Industries Limited",
         aliases=["Reliance Industries", "Reliance"],  # deliberately loose alias
         strict_aliases=["RIL"],
+        ambiguous_aliases=["RIL"],
         exclude_terms=["Reliance Power", "Reliance Infrastructure"],
     )
 

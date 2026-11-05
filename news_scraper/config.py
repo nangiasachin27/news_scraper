@@ -79,6 +79,10 @@ class Settings:
     enabled_sources: list[str] = field(default_factory=lambda: list(DEFAULT_SOURCES))
     publisher_feeds: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PUBLISHER_FEEDS))
     google_news_max_terms: int = 3
+    # Google News items older than ~a day carry a date only. "end_of_day" moves them to
+    # 23:59:59 of that date (next session's window) and flags meta.time_precision="date";
+    # "keep" uses the placeholder time as-is (lookahead risk in backtests).
+    date_only_policy: str = "end_of_day"
     google_news_sites: list[str] = field(default_factory=lambda: list(DEFAULT_GOOGLE_NEWS_SITES))
     yahoo_news_count: int = 25
     bse_max_pages: int = 10

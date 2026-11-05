@@ -211,6 +211,34 @@ RULES: tuple[Rule, ...] = (
 )
 
 
+MECHANICAL_TAG = "mechanical_price_adjustment"
+
+# Media headlines about an exchange price adjustment rather than company news.
+_MECHANICAL_RE = re.compile(
+    r"\bex[- ]?divid(e|en)d|\bturns? ex[- ]?(dividend|date|bonus|split)|\bex[- ]?date\b|\bex[- ]?bonus\b|\bex[- ]?split\b"
+    r"|\bprice adjusts?\b|\badjusts? (for|to) (the )?(dividend|bonus|split)|\brecord date\b",
+    re.I,
+)
+
+# Headlines that report a price move that has already happened.
+_PRICE_RECAP_RE = re.compile(
+    r"\b(shares?|stocks?|scrip|nifty|sensex|index)\b.{0,60}\b(surge[sd]?|soar(s|ed)?|jump(s|ed)?|rall(y|ies|ied)|"
+    r"gain(s|ed)?|rise[sn]?|rose|climb(s|ed)?|fall(s|en)?|fell|drop(s|ped)?|slump(s|ed)?|plunge[sd]?|tumble[sd]?|"
+    r"crash(es|ed)?|slide[sd]?|sink(s)?|sank|decline[sd]?|tank(s|ed)?|dive[sd]?|end(s|ed)? (higher|lower))"
+    r"|\b(top (gainers|losers)|stocks? to watch|buzzing stocks?|share price (live|today)|stock price live|"
+    r"52-week (high|low)|(upper|lower) circuit)\b|\b(up|down) \d+(\.\d+)?\s?%",
+    re.I,
+)
+
+
+def is_mechanical(title: str | None) -> bool:
+    return bool(_MECHANICAL_RE.search(title or ""))
+
+
+def is_price_recap(title: str | None) -> bool:
+    return bool(_PRICE_RECAP_RE.search(title or ""))
+
+
 def classify(text: str, source_type: str) -> tuple[str, str]:
     is_news = source_type == "news"
     for rule in RULES:

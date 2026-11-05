@@ -201,3 +201,54 @@ Output: `data/sentiment/summary_<start>_<end>.csv` — one row per (date, ticker
   `--log-file` tees all output plus INFO logs to a file.
 * Rate-limit bound: ~2 NSE + 5 Google (+ ~1 per kept Google article for link decoding) requests per
   ticker-date. `--google-interval 1.5` lowers block risk at the cost of time.
+
+---
+
+# Backtesting: sentiment_backtest
+
+**The timestamp problem.** For older articles Google News gives a date only, which the feed
+renders as a fixed time (12:30 or 13:30 IST). Taken literally, news published after the
+close on day D looks as if it was known before D's close: lookahead. Live runs get real times.
+
+**How the scraper handles it now.** Date-only items are flagged `meta.time_precision: "date"`
+and moved to 23:59:59 of their date (original in `meta.reported_published_at`), so they fall
+into the *next* session's window. `Settings.date_only_policy = "keep"` restores the old behaviour.
+
+**How the backtester stays honest.** Every item gets a `known_at`: its timestamp when exact,
+end of its date when date-only. A signal for a decision uses only items known before it:
+
+| Decision | Signal uses items known in | Returns measured |
+|---|---|---|
+| open, 09:15 on T | [09:15 previous session, 09:15 T) | open T → close T; open T → close T+4 |
+| close, 15:15 on T | [15:15 previous session, 15:15 T) | close T → close T+1; close T → close T+5 |
+
+Media news therefore reaches the backtest up to a day later than production: the backtest is a
+**conservative lower bound** on the live system. Files scored before the precision flag existed
+are handled by detecting the placeholder times; ex-dividend headlines are zero-weighted.
+
+```powershell
+python -m pip install -r requirements-backtest.txt
+python fetch_prices.py data\sentiment\summary_2026-01-01_2026-09-22.csv
+python -m sentiment_backtest --start 2026-01-01 --end 2026-09-22 --prices prices.csv --exclude RELIANCE,M&M
+```
+
+Output in `data\backtest\<start>_<end>\`: `metrics.csv` (rank correlation, the negative-news gate
+and the strongly-positive bucket, each against the rest, with 95% intervals and p-values from
+resampling 5-day blocks), `stability.csv` (does the effect keep its sign in each of 3
+sub-periods), `signals.csv`, `report.json`.
+
+**Validation protocol**
+1. Freeze the rule before looking (the gate: score ≤ −0.25, weight ≥ 1.0, more negative than
+   positive articles). Report the frozen rule first; treat anything tuned afterwards as a
+   hypothesis for the next period, not a result.
+2. Require the effect in every sub-period, not just overall (`stability.csv`).
+3. Headline-only robustness: article bodies of old news are downloaded long after publication
+   and may have been edited. Re-score headlines only into a separate folder and re-run:
+   ```powershell
+   python run_pipeline.py --start 2026-01-01 --end 2026-09-22 --skip-scrape --units title --sentiment-out data\sentiment_title
+   python -m sentiment_backtest --start 2026-01-01 --end 2026-09-22 --prices prices.csv --sentiment-dir data\sentiment_title --out-dir data\backtest_title
+   ```
+4. Parity on live data: after a few months of daily runs, `--parity` recomputes every signal
+   with media timestamps cut back to dates (as a backfill sees them) and reports how closely
+   the two agree. High agreement means backfill results transfer to production.
+5. Forward test: keep the rule frozen and re-run the backtest on each new month of live data.

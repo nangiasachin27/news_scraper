@@ -5,6 +5,7 @@ tzdata>=2024.1        # zoneinfo has no system tz database on Windows
 curl_cffi>=0.7        # Chrome TLS fingerprint; without it NSE/BSE return 403
 
 trafilatura>=1.8      # article body extraction
+lxml_html_clean       # lxml>=5.2 split this out; trafilatura's justext dep still imports it
 googlenewsdecoder>=0.2  # resolves news.google.com redirect links to publisher URLs
 
 # optional: PDF text from filings (--with-attachments)

@@ -21,7 +21,7 @@ def _ts(y, mo, d, h, mi):
 
 YAHOO = {
     "news": [
-        {"uuid": "y1", "title": "Jio Platforms IPO subscribed 3x on day one", "publisher": "Reuters",
+        {"uuid": "y1", "title": "Telecom tariff hike lifts sector outlook", "publisher": "Reuters",
          "link": "https://finance.yahoo.com/news/jio-ipo-subscribed.html",
          "providerPublishTime": _ts(2026, 11, 5, 10, 0), "relatedTickers": ["RELIANCE.NS", "JIOFIN.NS"]},
         {"uuid": "y2", "title": "Asian markets mixed ahead of Fed", "publisher": "Bloomberg",
@@ -86,7 +86,7 @@ def test_full_default_sources_pipeline(settings):
     out = json.loads(NewsPipeline(s, http=FakeHttp(routes)).run(date(2026, 11, 5), ["RELIANCE"])[0].path.read_text("utf-8"))
     assert all(st["ok"] for st in out["sources"].values())
     titles = [a["title"] for a in out["articles"]]
-    jio = next(a for a in out["articles"] if a["title"].startswith("Jio Platforms IPO"))
+    jio = next(a for a in out["articles"] if a["title"].startswith("Telecom tariff hike"))
     assert jio["tags"] == ["source_tagged"] and jio["relevance_score"] == 0.5
     assert not any("Asian markets" in t for t in titles)
     assert sum("Q2 profit rises 9%" in t for t in titles) == 1
@@ -96,7 +96,7 @@ def _rss(n, day="05"):
     items = "".join(
         f"<item><title>Reliance Industries story {day}-{i}</title>"
         f"<link>https://news.google.com/rss/articles/{day}x{i}</link>"
-        f"<pubDate>Thu, {day} Nov 2026 0{i % 9}:00:00 GMT</pubDate>"
+        f"<pubDate>Thu, {day} Nov 2026 0{i % 9}:{10 + i % 40}:07 GMT</pubDate>"
         f"<source url='https://x.example'>X</source></item>"
         for i in range(n)
     )

@@ -111,8 +111,8 @@ class Enricher:
             limiter.wait("https://news.google.com/")  # decoder makes its own Google calls
         try:
             decoded = self.google_decoder(a.url)
-        except ImportError:
-            a.meta["body_error"] = "googlenewsdecoder not installed"
+        except ImportError as exc:
+            a.meta["body_error"] = f"googlenewsdecoder import failed: {exc}"[:300]
             return None
         except Exception as exc:
             a.meta["body_error"] = f"google decode failed: {type(exc).__name__}: {exc}"[:300]
@@ -137,8 +137,10 @@ class Enricher:
             a.summary = meta_description(page)
         try:
             import trafilatura
-        except ImportError:
-            a.meta["body_error"] = "trafilatura not installed (summary from meta tags only)"
+        except ImportError as exc:
+            # Report the real cause: a broken sub-dependency (e.g. lxml_html_clean)
+            # also raises ImportError and is not the same as "not installed".
+            a.meta["body_error"] = f"trafilatura import failed: {exc} (summary from meta tags only)"[:300]
             return
         try:
             body = trafilatura.extract(page, include_comments=False, include_tables=False)

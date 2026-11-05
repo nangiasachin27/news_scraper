@@ -104,3 +104,28 @@ def from_struct_time(st) -> datetime:
 
 def now_ist() -> datetime:
     return datetime.now(IST)
+
+
+# ---- timestamp precision --------------------------------------------------------
+# Google News gives older items a date only, rendered as a fixed hour in UTC
+# (07:00:00 or 08:00:00 GMT, i.e. 12:30 / 13:30 IST). Treating that as a real time
+# puts news published after the close into the session it came after: lookahead.
+
+def is_date_only(dt: datetime) -> bool:
+    """True when a timestamp is a whole hour in UTC: how date-only feed items look.
+    A genuine item published exactly on the hour is misread as date-only, which only
+    delays it to the end of its day (conservative, never lookahead)."""
+    u = dt.astimezone(timezone.utc)
+    return u.minute == 0 and u.second == 0 and u.microsecond == 0
+
+
+def end_of_local_day(dt: datetime, tz: ZoneInfo = IST) -> datetime:
+    """Latest moment a date-only item could have been published (23:59:59 local).
+    Even if the feed's date is in UTC, the true time is at most 05:30 IST the next
+    morning, still before any trading decision that day."""
+    return datetime.combine(dt.astimezone(tz).date(), time(23, 59, 59), tz)
+
+
+def known_at(published_at: datetime, precision: str | None) -> datetime:
+    """When an item can be assumed public: its time if exact, else end of its day."""
+    return end_of_local_day(published_at) if precision == "date" else published_at

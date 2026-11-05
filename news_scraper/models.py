@@ -31,6 +31,9 @@ class TickerInfo:
     aliases: list[str] = field(default_factory=list)
     strict_aliases: list[str] = field(default_factory=list)
     exclude_terms: list[str] = field(default_factory=list)
+    # strict aliases that other companies also use (RIL); matches on these alone are
+    # down-weighted until a full-name mention confirms them
+    ambiguous_aliases: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

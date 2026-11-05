@@ -3,6 +3,8 @@
 #   aliases:          case-insensitive phrases that identify the company in news text
 #   strict_aliases:   case-sensitive tokens (acronyms that collide with ordinary words)
 #   exclude_terms:    masked out BEFORE matching - group/sibling listed entities
+#   ambiguous_aliases: strict aliases other entities also use (RIL, "Titan"); a match on
+#                     these alone is down-weighted (tag acronym_only) until confirmed
 #   use_symbol_alias: false stops the NSE symbol itself being added as a strict alias
 #   company_name / isin / bse_code: only needed for offline resolution
 #
@@ -10,8 +12,11 @@
 # otherwise its news leaks into the parent's sentiment (and vice versa).
 
 RELIANCE:
-  aliases: [Reliance Industries]
-  strict_aliases: [RIL]
+  # The press usually writes plain "Reliance". It is matched case-sensitively, after
+  # every other Reliance-branded or Ambani-group entity below has been masked out.
+  aliases: [Reliance Industries, Mukesh Ambani, Reliance Retail, Reliance Jio, Jio Platforms]
+  strict_aliases: [RIL, Reliance]
+  ambiguous_aliases: [RIL]
   exclude_terms:
     - Reliance Power
     - Reliance Infrastructure
@@ -20,8 +25,19 @@ RELIANCE:
     - Reliance Home Finance
     - Reliance Communications
     - Reliance General Insurance
+    - Reliance Health Insurance
     - Reliance Nippon
+    - Reliance Mutual Fund
+    - Reliance Securities
+    - Reliance Naval
+    - Reliance Defence
+    - Reliance Entertainment
+    - Reliance Group
+    - Reliance ADA
+    - Anil Ambani
     - Jio Financial Services
+    - Jio Financial
+    - Jio BlackRock
 
 TCS:
   aliases: [Tata Consultancy Services, Tata Consultancy]
@@ -52,15 +68,23 @@ LT:
   use_symbol_alias: false
 
 M&M:
-  aliases: [Mahindra & Mahindra, Mahindra and Mahindra]
-  strict_aliases: [M&M]
+  # The press usually writes plain "Mahindra". It is matched case-sensitively, after
+  # the other listed Mahindra-named companies below have been masked out.
+  aliases: [Mahindra & Mahindra, Mahindra and Mahindra, Anand Mahindra]
+  strict_aliases: [M&M, Mahindra]
   exclude_terms:
     - Mahindra & Mahindra Financial
+    - Mahindra and Mahindra Financial
+    - M&M Financial
+    - M&M Finance
     - Mahindra Finance
     - Tech Mahindra
+    - Kotak Mahindra
     - Mahindra Lifespace
     - Mahindra Logistics
     - Mahindra Holidays
+    - Mahindra CIE
+    - Mahindra Susten
 
 ITC:
   aliases: [ITC Ltd, ITC Limited]
@@ -71,3 +95,167 @@ ITC:
 BHARTIARTL:
   aliases: [Bharti Airtel, Airtel]
   exclude_terms: [Bharti Hexacom, Airtel Africa]
+
+# ---- NIFTY 50 (as of 30-Sep-2026 rebalance) + WIPRO (member until 29-Sep-2026) ----
+# Order matters: the first google_news_max_terms (3) terms become the Google query.
+
+ADANIENT:
+  aliases: [Adani Enterprises]
+  exclude_terms: [Adani Ports, Adani Green, Adani Power, Adani Total Gas, Adani Energy Solutions, Adani Wilmar, AWL Agri]
+
+ADANIPORTS:
+  aliases: [Adani Ports]
+  strict_aliases: [APSEZ]
+  exclude_terms: [Adani Enterprises, Adani Green, Adani Power, Adani Total Gas, Adani Energy Solutions]
+
+APOLLOHOSP:
+  aliases: [Apollo Hospitals]
+  exclude_terms: [Apollo Tyres, Apollo Micro Systems, Apollo Pipes]
+
+ASIANPAINT:
+  aliases: [Asian Paints]
+
+AXISBANK:
+  aliases: [Axis Bank]
+  exclude_terms: [Axis Mutual Fund, Axis Securities, Axis Max Life]
+
+BAJAJ-AUTO:
+  aliases: [Bajaj Auto]
+  exclude_terms: [Bajaj Finance, Bajaj Finserv, Bajaj Housing Finance, Bajaj Holdings]
+
+BAJAJFINSV:
+  aliases: [Bajaj Finserv]
+  exclude_terms: [Bajaj Finance, Bajaj Auto, Bajaj Housing Finance]
+
+BAJFINANCE:
+  aliases: [Bajaj Finance]
+  exclude_terms: [Bajaj Finserv, Bajaj Auto, Bajaj Housing Finance]
+
+BEL:
+  aliases: [Bharat Electronics]
+  strict_aliases: [BEL]
+
+BSE:
+  # "BSE" alone is the exchange (BSE Sensex, "listed on BSE"): never match it bare.
+  aliases: [BSE Ltd, BSE Limited, BSE shares, BSE share price, BSE stock]
+  use_symbol_alias: false
+
+DRREDDY:
+  aliases: [Dr Reddy's, Dr. Reddy's, Dr Reddys]
+
+EICHERMOT:
+  aliases: [Eicher Motors, Royal Enfield]
+
+ETERNAL:
+  # formerly Zomato; "eternal" is an ordinary word, so only title-case matches
+  aliases: [Zomato, Eternal Ltd, Blinkit]
+  strict_aliases: [Eternal]
+  ambiguous_aliases: [Eternal]
+
+GRASIM:
+  aliases: [Grasim]
+
+HCLTECH:
+  aliases: [HCLTech, HCL Tech, HCL Technologies]
+  exclude_terms: [HCL Infosystems]
+
+HDFCLIFE:
+  aliases: [HDFC Life]
+  exclude_terms: [HDFC Bank, HDFC AMC, HDFC Asset Management, HDFC ERGO, HDFC Securities, HDFC Mutual Fund]
+
+HINDALCO:
+  aliases: [Hindalco, Novelis]
+
+HINDUNILVR:
+  aliases: [Hindustan Unilever]
+  strict_aliases: [HUL]
+
+INDIGO:
+  # "indigo" is a colour and Indigo Paints is a different listed company
+  aliases: [InterGlobe Aviation]
+  strict_aliases: [IndiGo]
+  exclude_terms: [Indigo Paints]
+
+JIOFIN:
+  aliases: [Jio Financial Services, Jio Financial]
+  strict_aliases: [JFSL]
+  exclude_terms: [Jio Platforms, Reliance Jio]
+
+JSWSTEEL:
+  aliases: [JSW Steel]
+  exclude_terms: [JSW Energy, JSW Infrastructure, JSW Cement, JSW Paints, JSW Holdings]
+
+KOTAKBANK:
+  aliases: [Kotak Mahindra Bank, Kotak Bank]
+  exclude_terms: [Kotak Mahindra AMC, Kotak Securities, Kotak Mutual Fund, Kotak Life]
+
+MARUTI:
+  aliases: [Maruti Suzuki, Maruti]
+
+MAXHEALTH:
+  aliases: [Max Healthcare]
+  exclude_terms: [Max Financial Services, Max Life, Axis Max Life]
+
+NESTLEIND:
+  aliases: [Nestle India, Nestlé India]
+
+NTPC:
+  strict_aliases: [NTPC]
+  exclude_terms: [NTPC Green Energy, NTPC Green]
+  use_symbol_alias: false
+
+ONGC:
+  aliases: [Oil and Natural Gas Corporation, Oil & Natural Gas Corporation]
+  strict_aliases: [ONGC]
+  use_symbol_alias: false
+
+POWERGRID:
+  # bare "power grid" is a generic phrase; title case only
+  aliases: [Power Grid Corporation, Power Grid Corp, PowerGrid]
+  strict_aliases: [Power Grid]
+  ambiguous_aliases: [Power Grid]
+  exclude_terms: [Power Grid Infrastructure Investment Trust, PGInvIT]
+
+SBILIFE:
+  aliases: [SBI Life]
+  exclude_terms: [SBI Cards, SBI Card, SBI Mutual Fund, SBI General, SBI Funds Management]
+
+SHRIRAMFIN:
+  aliases: [Shriram Finance]
+
+SUNPHARMA:
+  aliases: [Sun Pharma, Sun Pharmaceutical]
+  exclude_terms: [Sun Pharma Advanced Research, SPARC, Sun TV]
+
+TATACONSUM:
+  aliases: [Tata Consumer Products, Tata Consumer]
+
+TECHM:
+  aliases: [Tech Mahindra, TechM]
+  strict_aliases: [TECHM]
+  use_symbol_alias: false
+
+TITAN:
+  # title case only: "titan" is an ordinary word
+  aliases: [Titan Company]
+  strict_aliases: [Titan]
+  ambiguous_aliases: [Titan]
+
+TMPV:
+  # post-demerger passenger-vehicle entity (incl. JLR). Bare "Tata Motors" is ambiguous
+  # with the commercial-vehicle company, so it is deliberately not an alias.
+  aliases: [Tata Motors Passenger Vehicles, Tata Motors PV, Jaguar Land Rover]
+  strict_aliases: [TMPV, JLR]
+  exclude_terms: [Tata Motors Commercial Vehicles, Tata Motors CV, TMCV]
+
+TRENT:
+  aliases: [Trent Ltd, Trent Limited, Zudio, Westside]
+  strict_aliases: [Trent]
+  ambiguous_aliases: [Trent]
+  exclude_terms: [Trent Boult, Trent Alexander-Arnold]
+
+ULTRACEMCO:
+  aliases: [UltraTech Cement, UltraTech]
+
+WIPRO:
+  aliases: [Wipro]

@@ -48,7 +48,7 @@ from news_scraper.config import PROJECT_DIR, Settings
 from news_scraper.models import TickerInfo
 from news_scraper.timeutils import is_trading_day, load_holidays, now_ist
 from news_scraper.writer import output_path
-from sentiment_engine.config import SentimentSettings
+from sentiment_engine.config import SentimentSettings, select_units
 from sentiment_engine.engine import SUMMARY_FIELDS, summary_row
 
 log = logging.getLogger("run_pipeline")
@@ -329,6 +329,9 @@ def run(
     if not dates:
         return [], [], None, {}
     infos, unresolved = resolve_tickers(raw_tickers, settings, http)
+    for t, err in unresolved.items():
+        print(f"WARNING: unresolved ticker {t} will be skipped: {err}", flush=True)
+    print(f"resolved {len(infos)}/{len(raw_tickers)} tickers", flush=True)
     symbols = [i.symbol for i in infos]
     results = [DateResult(d) for d in dates]
     if not infos:
@@ -430,6 +433,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", help="sentiment model id (default ProsusAI/finbert)")
     p.add_argument("--device", choices=["auto", "cuda", "cpu"])
     p.add_argument("--batch-size", type=int)
+    p.add_argument("--units", help="sentiment text units: all (default), title, or title,summary")
+    p.add_argument("--sentiment-out", type=Path, help="write sentiment to this folder instead of data/sentiment")
     p.add_argument("--log-file", type=Path, help="also write all output and logs to this file")
     p.add_argument("--allow-sleep", action="store_true", help="don't keep Windows awake during the run")
     p.add_argument("-v", "--verbose", action="count", default=0)
@@ -514,7 +519,14 @@ def _main(args) -> int:
         overrides["host_min_interval"] = {**base.host_min_interval, "news.google.com": args.google_interval}
     settings = replace(base, **overrides)
     sent_overrides = {k: v for k, v in {"model_name": args.model, "device": args.device,
-                                        "batch_size": args.batch_size}.items() if v}
+                                        "batch_size": args.batch_size,
+                                        "output_dir": args.sentiment_out}.items() if v}
+    if args.units:
+        try:
+            sent_overrides["unit_weights"] = select_units(args.units, SentimentSettings().unit_weights)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
     sent_settings = replace(SentimentSettings(), **sent_overrides)
 
     from news_scraper.http import HttpClient

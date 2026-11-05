@@ -63,15 +63,15 @@ GOOGLE_RSS = b"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0"><channel><title>Google News</title>
 <item><title>Reliance Industries Q2 profit rises 9% on retail, Jio - Economic Times</title>
 <link>https://news.google.com/rss/articles/AAA?oc=5</link>
-<pubDate>Thu, 05 Nov 2026 06:00:00 GMT</pubDate>
+<pubDate>Thu, 05 Nov 2026 06:04:11 GMT</pubDate>
 <source url="https://economictimes.indiatimes.com">Economic Times</source></item>
 <item><title>Reliance Industries Q2 profit rises 9% on retail, Jio - Mint</title>
 <link>https://news.google.com/rss/articles/BBB?oc=5</link>
-<pubDate>Thu, 05 Nov 2026 06:30:00 GMT</pubDate>
+<pubDate>Thu, 05 Nov 2026 06:31:07 GMT</pubDate>
 <source url="https://www.livemint.com">Mint</source></item>
 <item><title>Reliance Power shares hit upper circuit - Business Today</title>
 <link>https://news.google.com/rss/articles/CCC?oc=5</link>
-<pubDate>Thu, 05 Nov 2026 07:00:00 GMT</pubDate>
+<pubDate>Thu, 05 Nov 2026 07:02:45 GMT</pubDate>
 <source url="https://www.businesstoday.in">Business Today</source></item>
 </channel></rss>"""
 
@@ -80,11 +80,11 @@ PUBLISHER_RSS = b"""<?xml version="1.0" encoding="UTF-8"?>
 <item><title>Stocks to watch: Reliance Industries, TCS, Infosys, Wipro</title>
 <link>https://www.testwire.example/markets/stocks-to-watch-5-nov?utm_source=rss</link>
 <description>A roundup of stocks in focus today.</description>
-<pubDate>Thu, 05 Nov 2026 02:00:00 GMT</pubDate></item>
+<pubDate>Thu, 05 Nov 2026 02:03:19 GMT</pubDate></item>
 <item><title>Infosys wins $1 billion deal from European bank</title>
 <link>https://www.testwire.example/companies/infosys-deal</link>
 <description>Infosys has bagged a large deal.</description>
-<pubDate>Thu, 05 Nov 2026 03:00:00 GMT</pubDate></item>
+<pubDate>Thu, 05 Nov 2026 03:01:52 GMT</pubDate></item>
 </channel></rss>"""
 
 DEFAULT_ROUTES = {

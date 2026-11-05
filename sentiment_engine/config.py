@@ -10,6 +10,22 @@ from news_scraper.config import PROJECT_DIR
 SCHEMA_VERSION = "1.0"
 
 
+UNIT_NAMES = ("title", "summary", "body")
+
+
+def select_units(spec: str, unit_weights: dict[str, float]) -> dict[str, float]:
+    """'all', 'title' or 'title,summary' -> unit weights restricted to those units.
+    Headline-only scoring is the backtest robustness check: bodies of old articles are
+    downloaded long after publication and may have been edited since."""
+    if spec.strip().lower() == "all":
+        return dict(unit_weights)
+    chosen = [u.strip().lower() for u in spec.split(",") if u.strip()]
+    bad = [u for u in chosen if u not in UNIT_NAMES]
+    if bad or not chosen:
+        raise ValueError(f"--units: expected 'all' or a list of {', '.join(UNIT_NAMES)}; got {spec!r}")
+    return {u: w for u, w in unit_weights.items() if u in chosen}
+
+
 @dataclass
 class SentimentSettings:
     # ---- io ----------------------------------------------------------------
@@ -56,6 +72,9 @@ class SentimentSettings:
             "acronym_only": 0.6,
             "source_tagged": 0.7,
             "mechanical_price_adjustment": 0.0,
+            # Headlines reporting a move already in the price. Left at 1.0: the
+            # Jan-Sep 2026 out-of-sample test found no gain from down-weighting them.
+            "price_recap": 1.0,
         }
     )
     syndication_step: float = 0.25  # +25% weight per extra outlet...

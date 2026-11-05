@@ -16,7 +16,7 @@ from pathlib import Path
 
 from news_scraper.timeutils import now_ist
 
-from .config import SentimentSettings
+from .config import SentimentSettings, select_units
 
 
 def _parse_date(v: str) -> date:
@@ -32,6 +32,7 @@ def _build_parser() -> argparse.ArgumentParser:
     common.add_argument("--model", help="Hugging Face model id (default ProsusAI/finbert)")
     common.add_argument("--device", choices=["auto", "cuda", "cpu"])
     common.add_argument("--batch-size", type=int)
+    common.add_argument("--units", help="text units to score: all (default), title, or title,summary")
 
     p = argparse.ArgumentParser(prog="sentiment_engine", description="FinBERT sentiment over news_scraper output")
     p.add_argument("-v", "--verbose", action="count", default=0)
@@ -54,6 +55,12 @@ def main(argv: list[str] | None = None) -> int:
         "model_name": args.model, "device": args.device, "batch_size": args.batch_size,
         "news_dir": getattr(args, "news_dir", None), "output_dir": getattr(args, "output_dir", None),
     }.items() if v}
+    if args.units:
+        try:
+            overrides["unit_weights"] = select_units(args.units, SentimentSettings().unit_weights)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
     cfg = replace(SentimentSettings(), **overrides)
 
     from .scorers import FinBERTScorer  # heavy import deferred until needed

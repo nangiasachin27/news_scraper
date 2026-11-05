@@ -1,0 +1,4 @@
+# Backtester (python -m sentiment_backtest) and price download (fetch_prices.py)
+pandas>=2.0
+numpy>=1.24
+yfinance>=0.2.40

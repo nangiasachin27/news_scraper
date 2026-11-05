@@ -72,7 +72,7 @@ def load_overrides(path: Path) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
     for sym, cfg in raw.items():
         cfg = cfg or {}
-        for key in ("aliases", "strict_aliases", "exclude_terms"):
+        for key in ("aliases", "strict_aliases", "exclude_terms", "ambiguous_aliases"):
             val = cfg.get(key, [])
             if isinstance(val, str):
                 val = [val]
@@ -351,4 +351,5 @@ class TickerResolver:
             aliases=_dedupe(aliases, case_insensitive=True),
             strict_aliases=_dedupe(strict, case_insensitive=False),
             exclude_terms=_dedupe(override.get("exclude_terms", []), case_insensitive=True),
+            ambiguous_aliases=_dedupe(override.get("ambiguous_aliases", []), case_insensitive=False),
         )

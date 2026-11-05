@@ -6,10 +6,10 @@ and skip this step. News is matched against aliases with these safeguards:
 * ``exclude_terms`` are masked out *before* matching, so "Reliance Power" can never
   satisfy an alias like "Reliance".
 * ``strict_aliases`` are case-sensitive (RIL, L&T, ITC must not match "ril"/"itc").
-* Acronym-only mentions: a strict alias that is not the company's own name (RIL for
-  Reliance Industries) is ambiguous - other listed companies abbreviate to RIL too.
-  If no full-name alias appears in title or summary, the item scores 0.6 and is
-  tagged ``acronym_only``. ``confirm`` re-checks after enrichment adds summary/body
+* Ambiguous aliases (opt-in via ``ambiguous_aliases`` in aliases.yaml): RIL is also
+  other companies' abbreviation, "Titan" is also a submersible. If the only match is an
+  ambiguous alias and no full-name alias appears in title or summary, the item scores
+  0.6 and is tagged ``acronym_only``. Unambiguous brands (IndiGo, ONGC, JLR) aren't listed. ``confirm`` re-checks after enrichment adds summary/body
   text; a full-name hit there restores the score and drops the tag.
 * Counterparty mentions ("X bags order from <ticker>") score 0.5, tagged ``counterparty``.
 * Market round-ups ("Stocks to watch: A, B, C...") score 0.5 (0.3 summary-only),
@@ -22,7 +22,6 @@ from __future__ import annotations
 import re
 
 from .models import TickerInfo
-from .ticker_resolver import clean_company_name
 
 ROUNDUP_RE = re.compile(
     r"stocks? to (watch|buy|track)|stocks in (news|focus|the news)|buzzing stocks|"
@@ -54,9 +53,7 @@ class RelevanceMatcher:
         self._loose = [(a, _alias_pattern(a, case_sensitive=False)) for a in ticker.aliases]
         self._strict = [(a, _alias_pattern(a, case_sensitive=True)) for a in ticker.strict_aliases]
         self._patterns = self._loose + self._strict
-        # Strict aliases that ARE the company name (ITC, ACC) are not ambiguous acronyms.
-        own_name = clean_company_name(ticker.company_name).upper()
-        self._ambiguous = {a for a in ticker.strict_aliases if a.upper() != own_name}
+        self._ambiguous = set(ticker.ambiguous_aliases) & set(ticker.strict_aliases)
         # Longest first so "Reliance Industries Infrastructure" is masked before shorter terms.
         excludes = sorted(ticker.exclude_terms, key=len, reverse=True)
         self._excludes = [_alias_pattern(x, case_sensitive=False) for x in excludes]

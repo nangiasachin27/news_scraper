@@ -87,7 +87,7 @@ def test_pipeline_text_source_and_reuse_on_rerun(settings):
 
 def test_counterparty_mention_downweighted():
     info = TickerInfo(symbol="RELIANCE", company_name="Reliance Industries Limited",
-                      aliases=["Reliance Industries"], strict_aliases=["RIL"])
+                      aliases=["Reliance Industries"], strict_aliases=["RIL"], ambiguous_aliases=["RIL"])
     m = RelevanceMatcher(info)
     score, _, tags = m.score("Artson Receives Work Order From Reliance Industries For 15.4 Million Rupees")
     assert (score, tags) == (0.5, ["counterparty"])
@@ -109,7 +109,8 @@ def test_google_query_drops_symbol_subsumed_by_alias(settings):
 
 def _ril():
     return TickerInfo(symbol="RELIANCE", company_name="Reliance Industries Limited",
-                      aliases=["Reliance Industries"], strict_aliases=["RIL", "RELIANCE"])
+                      aliases=["Reliance Industries"], strict_aliases=["RIL", "RELIANCE"],
+                      ambiguous_aliases=["RIL"])
 
 
 def test_counterparty_with_period_in_amount():
@@ -127,6 +128,12 @@ def test_acronym_only_downweighted_and_confirmed_by_text():
     assert "acronym_only" in m.confirm("Tata Steel's Merger Scheme With RIL Takes Effect",
                                        "Tata Steel completed the merger of Rohit Industries.", None)[2]
     assert m.confirm("RIL shares jump", None, "Reliance Industries Ltd rose 3%...") [0] == 1.0
+
+
+def test_unlisted_strict_alias_not_flagged():
+    indigo = TickerInfo(symbol="INDIGO", company_name="InterGlobe Aviation Limited",
+                        aliases=["InterGlobe Aviation"], strict_aliases=["IndiGo"])
+    assert RelevanceMatcher(indigo).score("IndiGo adds 10 new routes") == (1.0, ["IndiGo"], [])
 
 
 def test_company_name_acronym_not_flagged():
