@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Environments / IDE
+.venv/
+venv/
+.idea/
+*.iml
+
+# Generated data: scraped news, sentiment, backtests, logs
+data/
+logs/
+prices.csv
+*.zip
+
+# Atomic-write leftovers
+*.tmp
+*.corrupt

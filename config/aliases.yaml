@@ -1,0 +1,73 @@
+# Manual overrides layered on top of names derived from the NSE/BSE reference lists.
+#
+#   aliases:          case-insensitive phrases that identify the company in news text
+#   strict_aliases:   case-sensitive tokens (acronyms that collide with ordinary words)
+#   exclude_terms:    masked out BEFORE matching - group/sibling listed entities
+#   use_symbol_alias: false stops the NSE symbol itself being added as a strict alias
+#   company_name / isin / bse_code: only needed for offline resolution
+#
+# Rule of thumb: every listed group company sharing a brand needs exclude_terms,
+# otherwise its news leaks into the parent's sentiment (and vice versa).
+
+RELIANCE:
+  aliases: [Reliance Industries]
+  strict_aliases: [RIL]
+  exclude_terms:
+    - Reliance Power
+    - Reliance Infrastructure
+    - Reliance Infra
+    - Reliance Capital
+    - Reliance Home Finance
+    - Reliance Communications
+    - Reliance General Insurance
+    - Reliance Nippon
+    - Jio Financial Services
+
+TCS:
+  aliases: [Tata Consultancy Services, Tata Consultancy]
+  strict_aliases: [TCS]
+
+INFY:
+  aliases: [Infosys]
+  strict_aliases: [INFY]
+
+HDFCBANK:
+  aliases: [HDFC Bank]
+  exclude_terms: [HDFC Life, HDFC AMC, HDFC Asset Management, HDFC Securities, HDFC ERGO, HDFC Mutual Fund]
+
+ICICIBANK:
+  aliases: [ICICI Bank]
+  exclude_terms: [ICICI Prudential, ICICI Lombard, ICICI Securities, ICICI Direct]
+
+SBIN:
+  aliases: [State Bank of India]
+  strict_aliases: [SBI]
+  exclude_terms: [SBI Life, SBI Cards, SBI Card, SBI Mutual Fund, SBI General, SBI Funds Management]
+  use_symbol_alias: false
+
+LT:
+  aliases: [Larsen & Toubro, Larsen and Toubro]
+  strict_aliases: [L&T]
+  exclude_terms: [L&T Finance, L&T Technology Services, LTIMindtree, L&T Mutual Fund]
+  use_symbol_alias: false
+
+M&M:
+  aliases: [Mahindra & Mahindra, Mahindra and Mahindra]
+  strict_aliases: [M&M]
+  exclude_terms:
+    - Mahindra & Mahindra Financial
+    - Mahindra Finance
+    - Tech Mahindra
+    - Mahindra Lifespace
+    - Mahindra Logistics
+    - Mahindra Holidays
+
+ITC:
+  aliases: [ITC Ltd, ITC Limited]
+  strict_aliases: [ITC]
+  exclude_terms: [ITC Hotels]
+  use_symbol_alias: false
+
+BHARTIARTL:
+  aliases: [Bharti Airtel, Airtel]
+  exclude_terms: [Bharti Hexacom, Airtel Africa]

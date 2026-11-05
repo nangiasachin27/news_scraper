@@ -1,0 +1,14 @@
+requests>=2.31
+feedparser>=6.0
+PyYAML>=6.0
+tzdata>=2024.1        # zoneinfo has no system tz database on Windows
+curl_cffi>=0.7        # Chrome TLS fingerprint; without it NSE/BSE return 403
+
+trafilatura>=1.8      # article body extraction
+googlenewsdecoder>=0.2  # resolves news.google.com redirect links to publisher URLs
+
+# optional: PDF text from filings (--with-attachments)
+pypdf>=4.0
+
+# dev
+pytest>=8.0

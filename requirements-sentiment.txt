@@ -1,0 +1,5 @@
+# Sentiment engine. Install torch FIRST with the CUDA build for your GPU, e.g.:
+#   python -m pip install torch --index-url https://download.pytorch.org/whl/cu124
+# (a plain `pip install torch` on Windows gives the CPU-only build)
+transformers>=4.40
+torch>=2.2

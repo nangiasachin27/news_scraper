@@ -1,0 +1,11 @@
+# One ticker per line. Accepts NSE symbol, SYMBOL.NS, SYMBOL.BO, 6-digit BSE code, or ISIN.
+RELIANCE
+TCS
+INFY
+HDFCBANK
+ICICIBANK
+SBIN
+LT
+M&M
+ITC
+BHARTIARTL

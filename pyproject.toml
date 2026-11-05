@@ -1,0 +1,13 @@
+[project]
+name = "news-scraper"
+version = "0.1.0"
+description = "Per-ticker financial news scraper for NSE/BSE equities, feeding a sentiment engine"
+requires-python = ">=3.10"
+dependencies = ["requests>=2.31", "feedparser>=6.0", "PyYAML>=6.0", "tzdata>=2024.1", "curl_cffi>=0.7", "trafilatura>=1.8", "googlenewsdecoder>=0.2"]
+
+[project.optional-dependencies]
+enrich = ["pypdf>=4.0"]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
