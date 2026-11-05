@@ -16,7 +16,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from news_scraper.timeutils import now_ist
+from news_scraper.timeutils import is_date_only, now_ist
 from news_scraper.writer import write_json
 
 from .aggregate import aggregate, article_weight, combine_units, label_for, text_units
@@ -29,6 +29,17 @@ SUMMARY_FIELDS = [
     "symbol", "score", "label", "weight_sum", "n_scored", "n_positive", "n_negative",
     "n_neutral", "dispersion", "insufficient", "degraded", "failed_sources", "top_driver",
 ]
+
+
+def time_precision(art: dict[str, Any]) -> str:
+    """'date' or 'exact'. News scraped before the date-only fix carries no flag, so
+    placeholder times (a whole hour in UTC) are detected here rather than assumed exact."""
+    flag = (art.get("meta") or {}).get("time_precision")
+    if flag:
+        return flag
+    if art.get("source_type") == "news" and art.get("published_at"):
+        return "date" if is_date_only(datetime.fromisoformat(art["published_at"])) else "exact"
+    return "exact"
 
 
 def summary_row(payload: dict[str, Any]) -> dict[str, Any]:
@@ -53,9 +64,30 @@ class _Pending:
 
 
 class SentimentEngine:
-    def __init__(self, scorer: Scorer, settings: SentimentSettings | None = None) -> None:
+    def __init__(self, scorer: Scorer, settings: SentimentSettings | None = None, materiality=None) -> None:
         self.scorer = scorer
         self.settings = settings or SentimentSettings()
+        self.materiality = materiality
+        if self.materiality is None and self.settings.materiality_model:
+            from .scorers import ZeroShotMateriality
+
+            self.materiality = ZeroShotMateriality(self.settings.materiality_model, self.settings.device,
+                                                   self.settings.materiality_batch_size, self.settings.fp16)
+
+    def _apply_materiality(self, pending: list["_Pending"]) -> None:
+        cfg = self.settings
+        targets = [(rec, rec["title"]) for p in pending for rec in p.records
+                   if rec["weight"] > 0 and rec["source_type"] in cfg.materiality_source_types and rec.get("title")]
+        if not targets:
+            return
+        scores = self.materiality.score([t for _, t in targets])
+        if len(scores) != len(targets):
+            raise RuntimeError(f"materiality scorer returned {len(scores)} results for {len(targets)} inputs")
+        for (rec, _), m in zip(targets, scores):
+            factor = cfg.materiality_floor + (1 - cfg.materiality_floor) * m
+            rec["materiality"] = round(m, 4)
+            rec["weight_factors"]["materiality"] = round(factor, 4)
+            rec["weight"] = round(rec["weight"] * factor, 4)
 
     # ---- discovery -------------------------------------------------------------
     def news_files(self, d: date, tickers: list[str] | None = None) -> list[Path]:
@@ -74,6 +106,8 @@ class SentimentEngine:
     # ---- run -------------------------------------------------------------------
     def run(self, d: date, tickers: list[str] | None = None) -> list[dict[str, Any]]:
         pending = [self._prepare(p) for p in self.news_files(d, tickers)]
+        if self.materiality is not None:
+            self._apply_materiality(pending)
         flat = [(i, u) for i, p in enumerate(pending) for u in p.units]
         log.info("scoring %d text units across %d tickers with %s", len(flat), len(pending), self.scorer.name)
         probs = self.scorer.score([u[2] for _, u in flat]) if flat else []
@@ -118,7 +152,7 @@ class SentimentEngine:
                 "text_source": (art.get("meta") or {}).get("text_source"),
                 # "date" = the feed gave only a date; published_at is then end of that day.
                 # Backtests use this to decide when the item was knowable.
-                "time_precision": (art.get("meta") or {}).get("time_precision", "exact"),
+                "time_precision": time_precision(art),
                 "tags": art.get("tags") or [],
                 "weight": round(weight, 4),
                 "weight_factors": factors,
@@ -145,6 +179,7 @@ class SentimentEngine:
             "ticker": news["ticker"]["symbol"],
             "date": d.isoformat(),
             "model": self.scorer.name,
+            "materiality_model": self.materiality.name if self.materiality is not None else None,
             "generated_at": now_ist().isoformat(),
             "input": {
                 "file": str(pend.path),

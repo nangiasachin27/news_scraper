@@ -39,6 +39,15 @@ class SentimentSettings:
     max_length: int = 512
     fp16: bool = True  # only applied on CUDA
 
+    # ---- materiality (experimental, off by default) -------------------------
+    # A zero-shot model rates each headline's chance of mattering to the share price;
+    # the article weight is multiplied by floor + (1 - floor) * materiality. The factor
+    # is stored in weight_factors, so the backtester can A/B it from one scoring run.
+    materiality_model: str | None = None   # e.g. "facebook/bart-large-mnli"
+    materiality_floor: float = 0.1
+    materiality_source_types: tuple[str, ...] = ("news",)
+    materiality_batch_size: int = 16
+
     # ---- text units per article ------------------------------------------
     # FinBERT is sentence-level: score title / summary / first body sentences
     # separately, then combine with these weights (renormalised over present units).

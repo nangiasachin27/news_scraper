@@ -39,6 +39,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--periods", type=int, default=3, help="sub-periods for the stability check (default 3)")
     p.add_argument("--parity", action="store_true", help="also run with media timestamps cut back to dates")
     p.add_argument("--degrade", action="store_true", help="run only with media timestamps cut back to dates")
+    p.add_argument("--no-materiality", action="store_true",
+                   help="divide out the materiality factor (A/B baseline for files scored with --materiality)")
     p.add_argument("--sentiment-dir", type=Path)
     p.add_argument("--out-dir", type=Path)
     p.add_argument("-v", "--verbose", action="count", default=0)
@@ -52,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {args.prices} not found (create it with fetch_prices.py)", file=sys.stderr)
         return 2
     cfg = BacktestSettings()
-    over = {"periods": args.periods, "degrade_media": args.degrade}
+    over = {"periods": args.periods, "degrade_media": args.degrade, "use_materiality": not args.no_materiality}
     if args.tickers:
         over["tickers"] = tuple(t.strip().upper() for t in args.tickers.split(",") if t.strip())
     if args.exclude:
@@ -71,7 +73,9 @@ def main(argv: list[str] | None = None) -> int:
 
     d = rep["data"]
     print(f"{d['trading_days']} trading days, {len(d['tickers'])} tickers, {d['items']} scored items; "
-          f"{d['media_date_only_share']:.0%} of media items have date-only timestamps")
+          f"{d['media_date_only_share']:.0%} of media items have date-only timestamps; "
+          f"materiality scored on {d['media_with_materiality']:.0%} of media items, "
+          f"{'applied' if d['materiality_applied'] else 'divided out'}")
     m = pd.DataFrame(rep["metrics"])
     pd.set_option("display.width", 220)
     if not m.empty:

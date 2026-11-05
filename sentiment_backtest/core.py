@@ -62,6 +62,9 @@ class BacktestSettings:
     tickers: tuple[str, ...] = ()
     degrade_media: bool = False      # treat every media timestamp as date-only
     zero_mechanical: bool = True     # apply the ex-dividend rule to files scored before it existed
+    # Files scored with --materiality carry a materiality factor in each article's weight.
+    # False divides it back out: same files, weights as without materiality (the A/B baseline).
+    use_materiality: bool = True
     n_boot: int = 2000
     # Resample blocks of this many consecutive trading days. Consecutive 5-day returns
     # overlap, so resampling single dates would overstate significance.
@@ -94,13 +97,17 @@ def load_items(cfg: BacktestSettings, start: date, end: date) -> pd.DataFrame:
             for a in data.get("articles", []):
                 if a.get("score") is None or not a.get("weight"):
                     continue
-                rec = (a.get("weight_factors") or {}).get("recency") or 1.0
+                factors = a.get("weight_factors") or {}
+                rec = factors.get("recency") or 1.0
                 base = a["weight"] / rec if rec else 0.0
+                if not cfg.use_materiality and factors.get("materiality"):
+                    base /= factors["materiality"]
                 pub = datetime.fromisoformat(a["published_at"])
                 is_news = a.get("source_type") == "news"
-                precision = a.get("time_precision")
-                if precision is None:  # files scored before the precision flag existed
-                    precision = "date" if is_news and is_date_only(pub) else "exact"
+                # A media item whose time is a placeholder (whole hour UTC) is date-only, whatever
+                # its label says: files scored from pre-fix news were labelled "exact" by default.
+                # Erring this way only delays an item, never lets it leak forward.
+                precision = "date" if a.get("time_precision") == "date" or (is_news and is_date_only(pub)) else "exact"
                 if cfg.degrade_media and is_news:
                     precision = "date"
                 if cfg.zero_mechanical and is_news and is_mechanical(a.get("title")):
@@ -110,7 +117,7 @@ def load_items(cfg: BacktestSettings, start: date, end: date) -> pd.DataFrame:
                 rows.append(dict(
                     symbol=sym, id=a["id"], source_type=a.get("source_type"), title=a.get("title"),
                     score=float(a["score"]), base_weight=float(base), precision=precision,
-                    known_at=known_at(pub, precision),
+                    known_at=known_at(pub, precision), materiality=a.get("materiality"),
                 ))
     items = pd.DataFrame(rows)
     if items.empty:
@@ -339,6 +346,8 @@ def run_backtest(start: date, end: date, prices: Path, cfg: BacktestSettings | N
         "items": int(len(items)), "tickers": sorted(items.symbol.unique()),
         "media_items": int(len(news)),
         "media_date_only_share": round(float((news.precision == "date").mean()), 3) if len(news) else None,
+        "media_with_materiality": round(float(news.materiality.notna().mean()), 3) if len(news) else None,
+        "materiality_applied": cfg.use_materiality,
         "trading_days": len(calendar),
     }
     report = {"start": str(start), "end": str(end), "settings": _jsonable(asdict(cfg)), "data": data_notes,

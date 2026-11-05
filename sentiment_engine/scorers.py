@@ -20,6 +20,54 @@ class Scorer(Protocol):
         ...
 
 
+class MaterialityScorer(Protocol):
+    name: str
+
+    def score(self, texts: list[str]) -> list[float]:
+        """Probability in [0, 1] that each headline is material to the share price."""
+        ...
+
+
+# Fixed before any backtest results were seen; change them only as a new, separately
+# tested experiment, never to improve a result already looked at.
+MATERIAL_LABEL = "news that could move the company's share price"
+ROUTINE_LABEL = "routine news with no effect on the share price"
+HYPOTHESIS_TEMPLATE = "This headline is {}."
+
+
+class ZeroShotMateriality:
+    """Zero-shot NLI: does the headline entail 'news that could move the share price'
+    rather than 'routine news'? Scores tone-free importance, which FinBERT does not.
+    Works with any NLI checkpoint (facebook/bart-large-mnli by default)."""
+
+    def __init__(self, model_name: str = "facebook/bart-large-mnli", device: str = "auto",
+                 batch_size: int = 16, fp16: bool = True) -> None:
+        try:
+            import torch
+            from transformers import pipeline
+        except ImportError as exc:
+            raise ImportError("materiality needs torch + transformers: pip install -r requirements-sentiment.txt") from exc
+        use_cuda = torch.cuda.is_available() if device == "auto" else device == "cuda"
+        if device == "cuda" and not torch.cuda.is_available():
+            raise RuntimeError("device='cuda' requested but torch.cuda.is_available() is False")
+        kwargs = {"torch_dtype": torch.float16} if use_cuda and fp16 else {}
+        self._pipe = pipeline("zero-shot-classification", model=model_name, tokenizer=model_name,
+                              device=0 if use_cuda else -1, **kwargs)
+        self.name = model_name
+        self.device = "cuda" if use_cuda else "cpu"
+        self.batch_size = batch_size
+        log.info("loaded materiality model %s on %s", model_name, self.device)
+
+    def score(self, texts: list[str]) -> list[float]:
+        if not texts:
+            return []
+        rows = self._pipe(texts, candidate_labels=[MATERIAL_LABEL, ROUTINE_LABEL],
+                          hypothesis_template=HYPOTHESIS_TEMPLATE, multi_label=False, batch_size=self.batch_size)
+        if isinstance(rows, dict):
+            rows = [rows]
+        return [float(dict(zip(r["labels"], r["scores"]))[MATERIAL_LABEL]) for r in rows]
+
+
 class FinBERTScorer:
     """Hugging Face sequence classifier. Works with ProsusAI/finbert and
     yiyanghkust/finbert-tone (labels are lower-cased; ``label_map`` covers models

@@ -252,3 +252,24 @@ sub-periods), `signals.csv`, `report.json`.
    with media timestamps cut back to dates (as a backfill sees them) and reports how closely
    the two agree. High agreement means backfill results transfer to production.
 5. Forward test: keep the rule frozen and re-run the backtest on each new month of live data.
+
+## Materiality experiment (zero-shot)
+
+FinBERT scores tone, not importance: "LPG shortage forces Infosys to limit catering services"
+reads as strongly negative. With `--materiality`, a zero-shot NLI model (`facebook/bart-large-mnli`
+by default) rates each news **headline** on "news that could move the company's share price" vs
+"routine news with no effect on the share price". The article weight is multiplied by
+`0.1 + 0.9 × materiality`; filings are left alone. Labels, template and floor were fixed before
+any result was seen (`sentiment_engine/scorers.py`, `sentiment_engine/config.py`).
+
+The factor is stored in each article's `weight_factors`, so one scoring run gives both arms:
+
+```powershell
+python -m sentiment_engine check --materiality          # downloads the model (~1.6 GB), scores sample headlines
+python run_pipeline.py --start 2026-01-01 --end 2026-09-22 --skip-scrape --units title --materiality --sentiment-out data\sentiment_title_mat
+python -m sentiment_backtest --start 2026-01-01 --end 2026-09-22 --prices prices.csv --exclude "RELIANCE,M&M" --sentiment-dir data\sentiment_title_mat --out-dir data\backtest_mat_on
+python -m sentiment_backtest --start 2026-01-01 --end 2026-09-22 --prices prices.csv --exclude "RELIANCE,M&M" --sentiment-dir data\sentiment_title_mat --out-dir data\backtest_mat_off --no-materiality
+```
+
+Adopt it only if `backtest_mat_on` beats `backtest_mat_off` in every sub-period (stability.csv),
+not just overall. It stays off by default until then.

@@ -202,3 +202,26 @@ def test_run_backtest_end_to_end(tmp_path):
     assert row.neg_rows > 20 and row.neg_gap_pts < -0.5 and row.neg_p < 0.05
     assert (tmp_path / "out" / f"{cal[0]}_{cal[-1]}" / "parity.csv").exists()
     assert rep["data"]["media_date_only_share"] == 0.0
+
+
+def test_mislabelled_exact_placeholder_still_treated_as_date_only(bt):
+    """Files scored from pre-fix news were labelled 'exact' by default; the placeholder
+    time must still be recognised, or the date-only protection silently switches off."""
+    f = next(bt.sentiment_dir.glob("*/AAA.json"))
+    d = json.loads(f.read_text("utf-8"))
+    for a in d["articles"]:
+        a["time_precision"] = "exact"
+    f.write_text(json.dumps(d), encoding="utf-8")
+    items = load_items(bt, CAL[0], CAL[-1]).set_index("id")
+    assert items.loc["a1", "precision"] == "date"   # 12:30 IST placeholder
+    assert items.loc["a3", "precision"] == "exact"  # real 11:00:09 time
+
+
+def test_engine_detects_placeholder_when_news_has_no_flag():
+    from sentiment_engine.engine import time_precision
+
+    assert time_precision({"source_type": "news", "published_at": "2026-03-03T12:30:00+05:30"}) == "date"
+    assert time_precision({"source_type": "news", "published_at": "2026-03-03T11:00:09+05:30"}) == "exact"
+    assert time_precision({"source_type": "news", "published_at": "2026-03-03T23:59:59+05:30",
+                           "meta": {"time_precision": "date"}}) == "date"
+    assert time_precision({"source_type": "exchange_filing", "published_at": "2026-03-03T16:00:00+05:30"}) == "exact"

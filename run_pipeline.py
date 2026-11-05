@@ -434,6 +434,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--device", choices=["auto", "cuda", "cpu"])
     p.add_argument("--batch-size", type=int)
     p.add_argument("--units", help="sentiment text units: all (default), title, or title,summary")
+    p.add_argument("--materiality", action="store_true",
+                   help="weight news by a zero-shot materiality score of the headline (experimental)")
+    p.add_argument("--materiality-model", help="NLI model for --materiality (default facebook/bart-large-mnli)")
     p.add_argument("--sentiment-out", type=Path, help="write sentiment to this folder instead of data/sentiment")
     p.add_argument("--log-file", type=Path, help="also write all output and logs to this file")
     p.add_argument("--allow-sleep", action="store_true", help="don't keep Windows awake during the run")
@@ -521,6 +524,8 @@ def _main(args) -> int:
     sent_overrides = {k: v for k, v in {"model_name": args.model, "device": args.device,
                                         "batch_size": args.batch_size,
                                         "output_dir": args.sentiment_out}.items() if v}
+    if args.materiality or args.materiality_model:
+        sent_overrides["materiality_model"] = args.materiality_model or "facebook/bart-large-mnli"
     if args.units:
         try:
             sent_overrides["unit_weights"] = select_units(args.units, SentimentSettings().unit_weights)

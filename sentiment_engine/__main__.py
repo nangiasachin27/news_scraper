@@ -33,6 +33,9 @@ def _build_parser() -> argparse.ArgumentParser:
     common.add_argument("--device", choices=["auto", "cuda", "cpu"])
     common.add_argument("--batch-size", type=int)
     common.add_argument("--units", help="text units to score: all (default), title, or title,summary")
+    common.add_argument("--materiality", action="store_true",
+                        help="weight news by a zero-shot materiality score of the headline (experimental)")
+    common.add_argument("--materiality-model", help="NLI model for --materiality (default facebook/bart-large-mnli)")
 
     p = argparse.ArgumentParser(prog="sentiment_engine", description="FinBERT sentiment over news_scraper output")
     p.add_argument("-v", "--verbose", action="count", default=0)
@@ -55,6 +58,8 @@ def main(argv: list[str] | None = None) -> int:
         "model_name": args.model, "device": args.device, "batch_size": args.batch_size,
         "news_dir": getattr(args, "news_dir", None), "output_dir": getattr(args, "output_dir", None),
     }.items() if v}
+    if args.materiality or args.materiality_model:
+        overrides["materiality_model"] = args.materiality_model or "facebook/bart-large-mnli"
     if args.units:
         try:
             overrides["unit_weights"] = select_units(args.units, SentimentSettings().unit_weights)
@@ -77,6 +82,20 @@ def main(argv: list[str] | None = None) -> int:
         for text, probs in zip(samples, scorer.score(samples)):
             s = probs["positive"] - probs["negative"]
             print(f"{s:+.3f}  pos={probs['positive']:.2f} neg={probs['negative']:.2f} neu={probs['neutral']:.2f}  {text}")
+        if cfg.materiality_model:
+            from .scorers import ZeroShotMateriality
+
+            mat = ZeroShotMateriality(cfg.materiality_model, cfg.device, cfg.materiality_batch_size, cfg.fp16)
+            heads = [
+                "LPG shortage forces Infosys to limit catering services on campuses",
+                "Infosys cuts FY27 revenue growth guidance to 1-3%",
+                "SEBI issues show-cause notice to HDFC Bank over disclosure lapses",
+                "TCS wins $1 billion deal from European bank",
+                "Bharti Airtel launches new prepaid plan with OTT bundle",
+            ]
+            print(f"\nmateriality model: {mat.name}  device: {mat.device}")
+            for text, m in zip(heads, mat.score(heads)):
+                print(f"{m:.2f}  {text}")
         return 0
 
     from .engine import SentimentEngine
