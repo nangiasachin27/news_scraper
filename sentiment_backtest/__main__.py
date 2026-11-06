@@ -72,9 +72,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     d = rep["data"]
+    pct = lambda x: "n/a" if x is None else f"{x:.0%}"  # noqa: E731  (None when there are no media items)
     print(f"{d['trading_days']} trading days, {len(d['tickers'])} tickers, {d['items']} scored items; "
-          f"{d['media_date_only_share']:.0%} of media items have date-only timestamps; "
-          f"materiality scored on {d['media_with_materiality']:.0%} of media items, "
+          f"{pct(d['media_date_only_share'])} of media items have date-only timestamps; "
+          f"materiality scored on {pct(d['media_with_materiality'])} of media items, "
           f"{'applied' if d['materiality_applied'] else 'divided out'}")
     m = pd.DataFrame(rep["metrics"])
     pd.set_option("display.width", 220)

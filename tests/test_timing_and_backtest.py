@@ -225,3 +225,48 @@ def test_engine_detects_placeholder_when_news_has_no_flag():
     assert time_precision({"source_type": "news", "published_at": "2026-03-03T23:59:59+05:30",
                            "meta": {"time_precision": "date"}}) == "date"
     assert time_precision({"source_type": "exchange_filing", "published_at": "2026-03-03T16:00:00+05:30"}) == "exact"
+
+
+# ---- body off by default, minor fixes --------------------------------------------------
+def test_article_pages_off_by_default_and_cli_switch():
+    from news_scraper.config import Settings
+    import run_pipeline as rp
+
+    assert Settings().fetch_article_body is False
+    a = rp.build_parser().parse_args(["--start", "2026-11-02", "--with-body"])
+    assert a.with_body and not a.no_body
+    with pytest.raises(SystemExit):  # the two switches can't be combined
+        rp.build_parser().parse_args(["--start", "2026-11-02", "--with-body", "--no-body"])
+
+
+def test_title_units_send_only_headlines_to_model(tmp_path):
+    from sentiment_engine.engine import SentimentEngine
+
+    from .test_sentiment import KeywordScorer, _art, _write_news
+
+    cfg = SentimentSettings(news_dir=tmp_path / "news", output_dir=tmp_path / "sent",
+                            unit_weights=select_units("title", SentimentSettings().unit_weights))
+    body = "Profit rose sharply on strong demand across all segments this quarter. " * 5
+    _write_news(cfg, "INFY", [_art(1, "Infosys shares jump", summary="A long enough summary sentence.", body=body)])
+
+    class Spy(KeywordScorer):
+        def score(self, texts):
+            self.texts = list(texts)
+            return super().score(texts)
+
+    spy = Spy()
+    out = SentimentEngine(spy, cfg).run(date(2026, 11, 4))
+    assert spy.texts == ["Infosys shares jump"]
+    assert out[0]["articles"][0]["units_used"] == ["title"]
+
+
+def test_first_day_looks_back_to_previous_trading_day(tmp_path):
+    root = tmp_path / "sent"
+    fri, mon = date(2026, 3, 6), date(2026, 3, 9)
+    _write_sent(root, fri, "AAA", [_art(1, "AAA results beat", datetime(2026, 3, 6, 17, 0, 7, tzinfo=IST), 0.7,
+                                        "exchange_filing")])
+    cfg = BacktestSettings(sentiment_dir=root, output_dir=tmp_path / "out", half_life_hours=0)
+    items = load_items(cfg, mon, mon)
+    sig = build_signals(items, [mon], cfg, full_calendar=[fri, mon])
+    assert set(sig.decision) == {"open", "close"}  # Friday 17:00 filing reaches Monday's decisions
+    assert build_signals(items, [mon], cfg).empty  # without the full calendar it falls back to 24 hours

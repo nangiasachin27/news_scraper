@@ -100,9 +100,12 @@ class Settings:
     cross_exchange_window_minutes: int = 180
 
     # ---- enrichment ----------------------------------------------------------
-    # Article text: on by default. Runs only on items that survived relevance/dedup
-    # (single digits to low tens per ticker-day), and results are reused on re-runs.
-    fetch_article_body: bool = True
+    # Article pages (summary + body): OFF by default. The Jan-Sep 2026 backtest found
+    # headline-only scoring carries the signal, and skipping page fetches avoids the
+    # Google-link decoding, paywall failures and most of the run time. With it off, Google
+    # News items carry only their headline; publisher-RSS items keep their feed summary.
+    # Turn on with --with-body.
+    fetch_article_body: bool = False
     # PDF text from filings: off by default (large downloads).
     fetch_attachments: bool = False
     attachment_tiers: tuple[str, ...] = ("high",)

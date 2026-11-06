@@ -155,8 +155,15 @@ def load_prices(path: Path) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------- signals
-def build_signals(items: pd.DataFrame, calendar: list[date], cfg: BacktestSettings) -> pd.DataFrame:
+def build_signals(items: pd.DataFrame, calendar: list[date], cfg: BacktestSettings,
+                  full_calendar: list[date] | None = None) -> pd.DataFrame:
+    """``calendar``: the days to evaluate. ``full_calendar``: every trading day in the
+    price file, used to find the session before the first evaluated day (so a range that
+    starts on a Monday still sees Friday's news)."""
     hl = cfg.half_life_hours * 3600.0
+    full = sorted(set(full_calendar or calendar) | set(calendar))
+    pos = {d: i for i, d in enumerate(full)}
+    prev_day = {T: (full[pos[T] - 1] if pos[T] > 0 else None) for T in calendar}
     rows = []
     for sym, g in items.groupby("symbol"):
         g = g.sort_values("known_at")
@@ -165,9 +172,10 @@ def build_signals(items: pd.DataFrame, calendar: list[date], cfg: BacktestSettin
         is_date = (g.precision == "date").to_numpy()
         for kind, hhmm in cfg.decisions.items():
             dec = time.fromisoformat(hhmm)
-            for i, T in enumerate(calendar):
+            for T in calendar:
                 t = datetime.combine(T, dec, IST).timestamp()
-                t_prev = (datetime.combine(calendar[i - 1], dec, IST) if i else
+                p = prev_day[T]
+                t_prev = (datetime.combine(p, dec, IST) if p else
                           datetime.combine(T, dec, IST) - timedelta(days=1)).timestamp()
                 lo, hi = np.searchsorted(ka, t_prev, "left"), np.searchsorted(ka, t, "left")
                 if hi <= lo:
@@ -317,18 +325,19 @@ def run_backtest(start: date, end: date, prices: Path, cfg: BacktestSettings | N
                  run_parity: bool = False) -> dict[str, Any]:
     cfg = cfg or BacktestSettings()
     rets = load_prices(prices)
-    calendar = sorted({d for d, _ in rets.index if start <= d <= end})
+    full_calendar = sorted({d for d, _ in rets.index})
+    calendar = [d for d in full_calendar if start <= d <= end]
     if not calendar:
         raise ValueError(f"no trading days in {prices} between {start} and {end}")
     items = load_items(cfg, start, end)
     label = "date-only media" if cfg.degrade_media else "as recorded"
-    sig = build_signals(items, calendar, cfg)
+    sig = build_signals(items, calendar, cfg, full_calendar)
     metrics = evaluate(sig, rets, cfg, label)
     frames = [metrics]
     par = pd.DataFrame()
     if run_parity:
         cfg_d = replace(cfg, degrade_media=True)
-        sig_d = build_signals(load_items(cfg_d, start, end), calendar, cfg_d)
+        sig_d = build_signals(load_items(cfg_d, start, end), calendar, cfg_d, full_calendar)
         frames.append(evaluate(sig_d, rets, cfg_d, "date-only media"))
         par = parity(sig, sig_d, cfg)
     metrics = pd.concat([f for f in frames if not f.empty], ignore_index=True)

@@ -163,7 +163,10 @@ class SentimentEngine:
                 "units_used": [],
             }
             if weight > 0:
-                art_units = text_units(art, self.settings)
+                # Only units that carry weight are sent to the model (--units title skips
+                # summaries and bodies instead of scoring them and discarding the result).
+                art_units = [(n, t) for n, t in text_units(art, self.settings)
+                             if self.settings.unit_weights.get(n, 0.0) > 0]
                 if not art_units:
                     rec["excluded_reason"] = "no_text"
                 units.extend((len(records), name, text) for name, text in art_units)

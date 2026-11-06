@@ -429,7 +429,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--google-interval", type=float, help="seconds between Google requests (default 1.0)")
     p.add_argument("--sources", help="comma-separated scraper sources (default: all enabled)")
     p.add_argument("--workers", type=int, help="parallel tickers per date")
-    p.add_argument("--no-body", action="store_true", help="skip article summary/body extraction")
+    body = p.add_mutually_exclusive_group()
+    body.add_argument("--with-body", action="store_true",
+                      help="fetch article pages for summary/body (off by default; slower, hits paywalls)")
+    body.add_argument("--no-body", action="store_true", help="(default) skip article pages; kept for older scripts")
     p.add_argument("--model", help="sentiment model id (default ProsusAI/finbert)")
     p.add_argument("--device", choices=["auto", "cuda", "cpu"])
     p.add_argument("--batch-size", type=int)
@@ -516,7 +519,9 @@ def _main(args) -> int:
         overrides["enabled_sources"] = [s.strip() for s in args.sources.split(",") if s.strip()]
     if args.workers:
         overrides["max_workers"] = args.workers
-    if args.no_body:
+    if args.with_body:
+        overrides["fetch_article_body"] = True
+    elif args.no_body:
         overrides["fetch_article_body"] = False
     if args.google_interval:
         overrides["host_min_interval"] = {**base.host_min_interval, "news.google.com": args.google_interval}

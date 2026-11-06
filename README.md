@@ -121,10 +121,13 @@ run from a residential/office connection, or slow down via `Settings.host_min_in
 * NSE/BSE endpoints are the unofficial JSON APIs behind their websites. They change without notice
   and throttle hard (rate limits default to 1 req/s per host). Field access is defensive, but a
   silent schema change shows up as `raw_count: 0` on liquid names — monitor that.
-* Article text: Google News redirects are decoded (`googlenewsdecoder`), then the publisher page
-  gives `summary` (og/meta description — usually present even behind paywalls) and `body`
-  (trafilatura — often absent behind paywalls). `meta.text_source` = body | summary | title_only
-  tells the sentiment engine what it has; `stats.text_sources` counts them. `--no-body` skips this.
+* Article pages are **not fetched by default** (`fetch_article_body=False`). The Jan–Sep 2026
+  backtest found headline-only scoring carries the signal, and skipping pages makes runs much
+  faster (no Google-link decoding, no paywalls). News items then have `summary` only where the
+  RSS feed supplies one, and `body: null`. Pass `--with-body` (news_scraper or run_pipeline) to
+  decode Google News links and fetch publisher pages: `summary` from og/meta description, `body`
+  from trafilatura (often absent behind paywalls). `meta.text_source` = body | summary | title_only
+  and `stats.text_sources` show what each run got. `--no-body` is still accepted (the default).
 * Counterparty mentions ("X bags order from RELIANCE") are tagged `counterparty` at score 0.5.
 * Rolling RSS feeds are useless for backfills; historical runs rely on exchanges + Google News.
 * Scanned PDF attachments yield no text (flagged `needs OCR`).

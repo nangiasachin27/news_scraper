@@ -64,7 +64,10 @@ def _build_parser() -> argparse.ArgumentParser:
     r.add_argument("--workers", type=int)
     r.add_argument("--keep-noise", action="store_true", help="keep noise-tier filings")
     r.add_argument("--with-attachments", action="store_true", help="extract PDF text for high-impact filings")
-    r.add_argument("--no-body", action="store_true", help="skip article summary/body extraction (faster)")
+    body = r.add_mutually_exclusive_group()
+    body.add_argument("--with-body", action="store_true",
+                      help="fetch article pages for summary/body (off by default; slower, hits paywalls)")
+    body.add_argument("--no-body", action="store_true", help="(default) skip article pages; kept for older scripts")
     r.add_argument("--no-merge", action="store_true", help="overwrite instead of merging with an existing file")
 
     sub.add_parser("refresh-reference", parents=[common], help="re-download NSE/BSE lists and NSE holidays")
@@ -131,7 +134,9 @@ def main(argv: list[str] | None = None) -> int:
         overrides["drop_noise"] = False
     if args.with_attachments:
         overrides["fetch_attachments"] = True
-    if args.no_body:
+    if args.with_body:
+        overrides["fetch_article_body"] = True
+    elif args.no_body:
         overrides["fetch_article_body"] = False
     if args.no_merge:
         overrides["merge_existing"] = False
