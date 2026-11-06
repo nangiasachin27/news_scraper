@@ -151,8 +151,11 @@ python -m sentiment_engine run --date 2026-11-02 -v    # needs data/news/2026-11
 
 Writes `data/sentiment/<date>/<SYMBOL>.json` and `data/sentiment/<date>/_summary.csv` (one row per ticker).
 
-**Scoring.** FinBERT is sentence-level, so each article is scored as separate units — title (0.5),
-summary (0.3), first 8 body sentences averaged (0.2) — renormalised over the units present.
+**Scoring.** Both CLIs score **headlines only** by default (`--units title`): that is the setting the
+Jan–Sep 2026 backtest validated, for news and filings alike. `--units all` scores each article as
+separate units — title (0.5), summary (0.3), first 8 body sentences averaged (0.2) — renormalised
+over the units present; `--units title,summary` drops bodies. (`SentimentSettings` used directly
+from Python still defaults to all three units.)
 Unit sentiment `s = p_pos − p_neg ∈ [−1, 1]`.
 
 **Weighting** (all in `sentiment_engine/config.py`): article weight = source_type × impact_tier ×

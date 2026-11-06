@@ -436,7 +436,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--model", help="sentiment model id (default ProsusAI/finbert)")
     p.add_argument("--device", choices=["auto", "cuda", "cpu"])
     p.add_argument("--batch-size", type=int)
-    p.add_argument("--units", help="sentiment text units: all (default), title, or title,summary")
+    p.add_argument("--units", default="title",
+                   help="sentiment text units: title (default, the backtested setting), all, or title,summary")
     p.add_argument("--materiality", action="store_true",
                    help="weight news by a zero-shot materiality score of the headline (experimental)")
     p.add_argument("--materiality-model", help="NLI model for --materiality (default facebook/bart-large-mnli)")

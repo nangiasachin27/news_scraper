@@ -32,7 +32,8 @@ def _build_parser() -> argparse.ArgumentParser:
     common.add_argument("--model", help="Hugging Face model id (default ProsusAI/finbert)")
     common.add_argument("--device", choices=["auto", "cuda", "cpu"])
     common.add_argument("--batch-size", type=int)
-    common.add_argument("--units", help="text units to score: all (default), title, or title,summary")
+    common.add_argument("--units", default="title",
+                        help="text units to score: title (default, the backtested setting), all, or title,summary")
     common.add_argument("--materiality", action="store_true",
                         help="weight news by a zero-shot materiality score of the headline (experimental)")
     common.add_argument("--materiality-model", help="NLI model for --materiality (default facebook/bart-large-mnli)")

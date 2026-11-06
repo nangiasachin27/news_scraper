@@ -270,3 +270,12 @@ def test_first_day_looks_back_to_previous_trading_day(tmp_path):
     sig = build_signals(items, [mon], cfg, full_calendar=[fri, mon])
     assert set(sig.decision) == {"open", "close"}  # Friday 17:00 filing reaches Monday's decisions
     assert build_signals(items, [mon], cfg).empty  # without the full calendar it falls back to 24 hours
+
+
+def test_both_clis_default_to_headline_only():
+    import run_pipeline as rp
+    from sentiment_engine.__main__ import _build_parser
+
+    assert rp.build_parser().parse_args(["--start", "2026-11-09"]).units == "title"
+    assert _build_parser().parse_args(["run"]).units == "title"
+    assert _build_parser().parse_args(["run", "--units", "all"]).units == "all"
