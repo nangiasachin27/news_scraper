@@ -279,3 +279,31 @@ python -m sentiment_backtest --start 2026-01-01 --end 2026-09-22 --prices prices
 
 Adopt it only if `backtest_mat_on` beats `backtest_mat_off` in every sub-period (stability.csv),
 not just overall. It stays off by default until then.
+
+# Export for trading systems: sentiment_backtest.export
+
+```powershell
+python -m sentiment_backtest.export --start 2026-01-01 --end 2026-10-31 --out sentiment_2026-01-01_2026-10-31.csv
+```
+
+One row per scraped ticker-day: `date, symbol, decision_time, score, weight, n, n_neg, n_pos,
+date_only_share, negative`. Rows are computed by the backtester's own signal code, so they are
+point-in-time: the row for day T uses only news known before 15:15 IST on T (date-only
+timestamps count at the end of their day). `negative` is the frozen rule (score ≤ −0.25,
+weight ≥ 1.0, n_neg > n_pos). A scraped day with no news has a row with `n = 0`; a ticker-day
+that was never scraped has **no row**, and consumers should treat it as unknown.
+
+wrsi_trader_new's `sentiment` filter reads these files (see its `config/filters/sentiment.json`).
+
+## Scraping only what a backtest needs: scrape_pairs.py
+
+Backfilling all of Nifty 500 every day is hundreds of thousands of Google queries. A trading
+backtest only asks about the candidates its other filters let through, so scrape those:
+
+```powershell
+python scrape_pairs.py pairs.csv --dry-run          # plan: dates x tickers
+python scrape_pairs.py pairs.csv --skip-existing    # options after the file go to run_pipeline.py
+```
+
+`pairs.csv` needs `date,symbol` columns; wrsi_trader_new's `scripts/sentiment_check.py pairs`
+writes it from a backtest journal.
