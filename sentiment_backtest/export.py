@@ -19,11 +19,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import logging
 import os
 import sys
 from dataclasses import replace
-from datetime import date, time
+from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +49,21 @@ def _folders(root: Path) -> dict[date, Path]:
     return out
 
 
+def _session_start(folder: Path) -> date | None:
+    """Previous session's date, from the scraper window recorded in any sentiment file of
+    this folder (window.start = previous trading day's close, holiday-aware)."""
+    for f in sorted(folder.glob("*.json")):
+        if f.name.startswith("_"):
+            continue
+        try:
+            start = (json.loads(f.read_text(encoding="utf-8")).get("input") or {}).get("window", {}).get("start")
+            if start:
+                return datetime.fromisoformat(start).date()
+        except (OSError, ValueError, AttributeError):
+            continue
+    return None
+
+
 def export_rows(start: date, end: date, cfg: BacktestSettings | None = None,
                 decision_time: str = "15:15") -> list[dict[str, Any]]:
     cfg = replace(cfg or BacktestSettings(), decisions={"export": decision_time})
@@ -59,6 +75,12 @@ def export_rows(start: date, end: date, cfg: BacktestSettings | None = None,
     calendar = [d for d in full_calendar if start <= d <= end]
     if not calendar:
         raise ValueError(f"no sentiment folders under {cfg.sentiment_dir} between {start} and {end}")
+    if calendar[0] == full_calendar[0]:
+        # No earlier folder (e.g. a fresh daily run): take the previous session from the
+        # scraper window, so Monday still looks back to Friday's decision time, not 24 hours.
+        prev = _session_start(folders[calendar[0]])
+        if prev and prev < calendar[0]:
+            full_calendar = sorted({prev, *full_calendar})
 
     covered: list[tuple[date, str]] = []
     for d in calendar:

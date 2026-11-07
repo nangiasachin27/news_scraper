@@ -307,3 +307,27 @@ python scrape_pairs.py pairs.csv --skip-existing    # options after the file go 
 
 `pairs.csv` needs `date,symbol` columns; wrsi_trader_new's `scripts/sentiment_check.py pairs`
 writes it from a backtest journal.
+
+## Daily run for wrsi_trader_new: daily_sentiment.py + GitHub workflow
+
+```powershell
+python daily_sentiment.py --wrsi-universe ..\wrsi_trader_new\config\universe.json --out-dir ..\wrsi_trader_new\sentiment_gate
+python daily_sentiment.py --date 2026-11-06 --tickers TCS INFY "M&M" --out-dir out -- --workers 4   # after --: run_pipeline options
+```
+
+It checks the date is an NSE trading day, runs `run_pipeline` for that date (headlines only,
+`--skip-existing`, short cooldowns), exports `sentiment_<date>.csv` and prints a summary:
+coverage, flagged tickers, source failures, and tickers with no row. Run it after 15:30 IST.
+
+`.github/workflows/daily_sentiment.yml` runs it at 15:35 IST on weekdays, commits the CSV to
+`wrsi_trader_new/sentiment_gate/`, and keeps the raw news and sentiment JSONs as a 90-day
+artifact. Setup:
+
+1. Create a fine-grained PAT with access to `wrsi_trader_new` only and Contents: Read and write.
+   Save it as the `WRSI_PUSH_TOKEN` secret in this repo.
+2. Move wrsi's `eod` cron after this job finishes, e.g. `"0 12 * * 1-5"` (17:30 IST). A Nifty 500
+   run takes roughly 45–90 minutes, and GitHub's cron can start late. A missing CSV only means
+   the filter treats that day as unknown and lets every candidate through.
+3. Run it once with *Run workflow* and read the job summary. NSE and BSE often block cloud IPs.
+   If their sources fail for most tickers, filings are missing from the signal; a self-hosted
+   runner on your own PC avoids that.

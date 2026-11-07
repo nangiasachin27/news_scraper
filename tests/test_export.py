@@ -57,3 +57,73 @@ def test_load_pairs_groups_by_date(tmp_path):
     p = tmp_path / "pairs.csv"
     p.write_text("Date,Symbol\n2026-03-03,tcs\n2026-03-03,M&M\n2026-03-02,TCS\n2026-03-03,TCS\n", encoding="utf-8")
     assert load_pairs(p) == {MON: ["TCS"], TUE: ["M&M", "TCS"]}
+
+
+def test_single_day_export_looks_back_to_previous_session(tmp_path):
+    """A fresh daily run has only today's folder: Monday must still see Friday-evening news."""
+    import json
+
+    root = tmp_path / "sent"
+    _write_sent(root, MON, "AAA", [
+        _art(1, "AAA fraud alleged", datetime(2026, 2, 28, 11, 0, 7, tzinfo=IST), -0.9),   # Saturday
+        _art(2, "AAA auditor quits", datetime(2026, 2, 27, 18, 0, 7, tzinfo=IST), -0.8),   # Friday evening
+    ])
+    f = root / MON.isoformat() / "AAA.json"
+    data = json.loads(f.read_text())
+    data["input"] = {"window": {"start": "2026-02-27T15:30:00+05:30", "end": "2026-03-02T15:30:00+05:30"}}
+    f.write_text(json.dumps(data))
+    row = export_rows(MON, MON, BacktestSettings(sentiment_dir=root, half_life_hours=0))[0]
+    assert row["n"] == 2 and row["negative"] == 1
+
+
+def test_daily_sentiment_end_to_end(tmp_path, monkeypatch, capsys):
+    import json
+
+    import daily_sentiment
+    import run_pipeline
+
+    DAY = date(2026, 3, 10)  # an ordinary trading day (3 March 2026 is Holi)
+    uni = tmp_path / "universe.json"
+    uni.write_text(json.dumps({"instruments": {}, "lists": {"nifty500": ["AAA", "BBB", "M&M"]}}))
+    root = tmp_path / "sent"
+    seen = {}
+
+    def fake_pipeline(argv):
+        seen["argv"] = argv
+        _write_sent(root, DAY, "AAA", [_art(1, "AAA probe", datetime(2026, 3, 10, 11, 0, 7, tzinfo=IST), -0.9),
+                                       _art(2, "AAA raid", datetime(2026, 3, 10, 12, 0, 7, tzinfo=IST), -0.7)])
+        _write_sent(root, DAY, "BBB", [])
+        return 1  # one ticker incomplete
+
+    monkeypatch.setattr(run_pipeline, "main", fake_pipeline)
+    monkeypatch.setattr(daily_sentiment, "BacktestSettings", lambda: BacktestSettings(sentiment_dir=root))
+    out = tmp_path / "gate"
+    assert daily_sentiment.main(["--date", "2026-03-10", "--wrsi-universe", str(uni), "--out-dir", str(out),
+                                 "--", "--workers", "2"]) == 0
+    assert seen["argv"][:2] == ["--start", "2026-03-10"] and "M&M" in seen["argv"]
+    assert seen["argv"][-2:] == ["--workers", "2"] and "--units" in seen["argv"]
+    with open(out / "sentiment_2026-03-10.csv", newline="") as fh:
+        rows = {r["symbol"]: r for r in csv.DictReader(fh)}
+    assert rows["AAA"]["negative"] == "1" and rows["BBB"]["n"] == "0" and "M&M" not in rows
+    text = capsys.readouterr().out
+    assert "1 flagged negative" in text and "no row" in text and "M&M" in text
+
+
+def test_daily_sentiment_skips_holidays(tmp_path, monkeypatch):
+    import daily_sentiment
+    import run_pipeline
+
+    monkeypatch.setattr(run_pipeline, "main", lambda argv: pytest.fail("must not scrape on a weekend"))
+    assert daily_sentiment.main(["--date", "2026-03-07", "--tickers", "TCS", "--out-dir", str(tmp_path)]) == 0
+    assert not list(tmp_path.glob("*.csv"))
+
+
+def test_wrsi_universe_list_missing(tmp_path):
+    import json
+
+    import daily_sentiment
+
+    uni = tmp_path / "u.json"
+    uni.write_text(json.dumps({"lists": {"default": ["A"]}}))
+    with pytest.raises(ValueError, match="nifty500"):
+        daily_sentiment.wrsi_tickers(uni, "nifty500")
