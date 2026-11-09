@@ -9,6 +9,11 @@
 # at 15:30, so this starts at 15:35 IST. A full Nifty 500 run takes roughly 45-90 minutes
 # (Google is rate-limited to ~1 query/s), so wrsi's eod must run AFTER it - see the README.
 # GitHub's cron can start 10-30 minutes late; the filter fails open if the CSV isn't there.
+#
+# Scoring: headline + summary (--with-body --units title,summary). --with-body decodes Google
+# News links and fetches each kept article's page for its summary (og:description); that adds
+# about one request per kept media article, so the run takes longer than headline-only.
+# To go back to headlines only, remove those two options (EXTRA "--units title" also overrides).
 name: daily-sentiment
 on:
   schedule:
@@ -19,7 +24,7 @@ on:
         description: "YYYY-MM-DD (default: today in IST)"
         required: false
       extra:
-        description: "extra run_pipeline options, e.g. --workers 4"
+        description: "extra run_pipeline options, e.g. --workers 4 (added last, so they override)"
         required: false
 concurrency: {group: daily-sentiment, cancel-in-progress: false}
 permissions: {contents: read}
@@ -29,7 +34,7 @@ env:
 jobs:
   sentiment:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
 
@@ -70,7 +75,7 @@ jobs:
           python daily_sentiment.py "${ARGS[@]}" \
             --wrsi-universe wrsi/config/universe.json --list nifty500 \
             --out-dir wrsi/sentiment_gate \
-            -- --workers 4 --log-file logs/daily.log $EXTRA
+            -- --workers 4 --log-file logs/daily.log --with-body --units title,summary $EXTRA
 
       - name: Commit CSV to wrsi_trader_new
         working-directory: wrsi
