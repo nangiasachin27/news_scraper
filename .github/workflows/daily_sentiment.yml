@@ -16,8 +16,6 @@
 # To go back to headlines only, remove those two options (EXTRA "--units title" also overrides).
 name: daily-sentiment
 on:
-  schedule:
-    - cron: "5 10 * * 1-5"   # 15:35 IST, Mon-Fri (holidays exit early)
   workflow_dispatch:
     inputs:
       date:
