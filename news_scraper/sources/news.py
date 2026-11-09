@@ -17,7 +17,7 @@ import time
 from datetime import date, timedelta
 
 from ..models import Article
-from ..timeutils import end_of_local_day, is_date_only, now_ist
+from ..timeutils import is_date_only, latest_bound, now_ist
 from ._rss import FeedItem, parse_feed
 from .base import PartialResult, Source, register
 
@@ -63,10 +63,12 @@ class GoogleNews(Source):
         for it in parse_feed(resp.content):
             published, meta = it.published_at, {}
             if self.settings.date_only_policy == "end_of_day" and is_date_only(published):
-                # Date-only item: place it at the latest moment it could have appeared, so
-                # it lands in the NEXT session's window instead of the one it may postdate.
+                # Date-only item. The placeholder is midnight US Pacific of the article's
+                # date, so it may have come out up to 24h later (12:29/13:29 IST next day).
+                # Store that latest bound: it lands in the session window it can't
+                # postdate, and backtests never count it before it existed.
                 meta = {"time_precision": "date", "reported_published_at": published.isoformat()}
-                published = end_of_local_day(published)
+                published = latest_bound(published)
             out.append(
                 Article(
                     source=self.name,

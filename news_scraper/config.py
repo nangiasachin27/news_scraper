@@ -79,9 +79,10 @@ class Settings:
     enabled_sources: list[str] = field(default_factory=lambda: list(DEFAULT_SOURCES))
     publisher_feeds: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_PUBLISHER_FEEDS))
     google_news_max_terms: int = 3
-    # Google News items older than ~a day carry a date only. "end_of_day" moves them to
-    # 23:59:59 of that date (next session's window) and flags meta.time_precision="date";
-    # "keep" uses the placeholder time as-is (lookahead risk in backtests).
+    # Google News items older than ~a day carry a date only (a placeholder at midnight US
+    # Pacific). "end_of_day" moves them to the latest moment they could have appeared
+    # (placeholder + 23:59:59, i.e. 12:29/13:29 IST the next day) and flags
+    # meta.time_precision="date"; "keep" uses the placeholder as-is (lookahead risk).
     date_only_policy: str = "end_of_day"
     google_news_sites: list[str] = field(default_factory=lambda: list(DEFAULT_GOOGLE_NEWS_SITES))
     yahoo_news_count: int = 25
@@ -96,6 +97,12 @@ class Settings:
     min_relevance: float = 0.5
     drop_noise: bool = True
     dedup_title_threshold: float = 0.88
+    # Story grouping: differently worded headlines about one event ("Jaleel named accused
+    # in TCS Nashik case" x6 outlets) are merged into one item, the others listed in
+    # also_reported_by. Without it every outlet counts as separate news.
+    story_grouping: bool = True
+    story_min_shared: int = 3          # distinctive words two headlines must share
+    story_min_overlap: float = 0.4     # ...as a share of the shorter headline's
     cross_exchange_threshold: float = 0.80
     cross_exchange_window_minutes: int = 180
 

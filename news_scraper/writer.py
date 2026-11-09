@@ -15,6 +15,7 @@ from typing import Any
 
 from .config import Settings
 from .models import TickerInfo
+from .timeutils import normalize_article_time
 
 log = logging.getLogger(__name__)
 
@@ -28,8 +29,15 @@ def output_path(settings: Settings, d: date, ticker: TickerInfo) -> Path:
     return Path(settings.output_dir) / d.isoformat() / _ILLEGAL_FILENAME_CHARS.sub("_", name)
 
 
-def merge_with_existing(path: Path, new_articles: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Union by id. New version of an item wins, but keeps the original first_seen_at."""
+def merge_with_existing(
+    path: Path, new_articles: list[dict[str, Any]], date_only_policy: str = "end_of_day"
+) -> list[dict[str, Any]]:
+    """Union by id. New version of an item wins, but keeps the original first_seen_at.
+
+    Items read back from the file are first brought up to the current timestamp rules
+    (``normalize_article_time``): files written by older code may hold date-only items
+    at a placeholder time inside this window. Call ``trim_to_window`` on the result so
+    items that now belong to another date are not kept here."""
     if not path.exists():
         return new_articles
     try:
@@ -39,7 +47,12 @@ def merge_with_existing(path: Path, new_articles: list[dict[str, Any]]) -> list[
         log.warning("existing %s unreadable (%s); moved to %s", path, exc, backup.name)
         os.replace(path, backup)
         return new_articles
-    merged: dict[str, dict[str, Any]] = {a["id"]: a for a in existing.get("articles", []) if "id" in a}
+    merged: dict[str, dict[str, Any]] = {}
+    for a in existing.get("articles", []):
+        if "id" not in a:
+            continue
+        normalize_article_time(a, date_only_policy)
+        merged[a["id"]] = a
     for art in new_articles:
         old = merged.get(art["id"])
         if old:
@@ -51,6 +64,22 @@ def merge_with_existing(path: Path, new_articles: list[dict[str, Any]]) -> list[
                     art[key] = old[key]
         merged[art["id"]] = art
     return list(merged.values())
+
+
+def trim_to_window(
+    articles: list[dict[str, Any]], start: datetime, end: datetime
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Split into (inside [start, end), outside). A merged file must only hold items its
+    window owns: sources trim new items, but items carried over from an earlier run may
+    have moved (timestamp rules fixed, holiday calendar added, window mode changed)."""
+    kept, dropped = [], []
+    for a in articles:
+        try:
+            inside = start <= datetime.fromisoformat(a["published_at"]) < end
+        except (KeyError, TypeError, ValueError):
+            inside = False
+        (kept if inside else dropped).append(a)
+    return kept, dropped
 
 
 def _load_existing(path: Path) -> dict[str, dict[str, Any]]:

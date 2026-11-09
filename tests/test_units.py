@@ -168,3 +168,45 @@ def test_canonical_url_strips_tracking():
     a = canonical_url("https://www.livemint.com/x/story/?utm_source=rss&id=5#top")
     b = canonical_url("http://livemint.com/x/story?id=5")
     assert a == b
+
+
+# ---- multi-story digests ----------------------------------------------------------
+IAM_TITLE = ("Reliance Industries Asia IP Elite interview; NXP on battle-ready patent portfolio; "
+             "US midterms and IP subcommittees; Amazon hit with Wilus Wi-Fi suit; "
+             "Samsung-ZTE UPC withdrawal; plus much more")
+IAM_LEDE = ("Get ready for the new working week with a summary of all the stories posted "
+            "on the IAM platform over the past seven days")
+
+
+def test_digest_title_is_roundup(reliance):
+    score, _, tags = RelevanceMatcher(reliance).score(IAM_TITLE)
+    assert score == 0.5 and tags == ["roundup"]
+
+
+def test_digest_detection_rules():
+    from news_scraper.relevance import is_digest
+    assert is_digest(IAM_TITLE)
+    assert is_digest("Reliance AGM highlights", IAM_LEDE)                 # lede gives it away
+    assert is_digest("Week in review: RIL, TCS and HDFC Bank")
+    assert is_digest("IP news: RIL patent filing, Tata deal and lots more")
+    assert not is_digest("Reliance plans more investment in green energy, plus a new refinery")
+    # one company's multi-clause headline is not a digest
+    assert not is_digest("RIL Q2: profit up 9%; Jio ARPU rises; retail slows")
+    assert not is_digest("Reliance shares jump; analysts see more upside")
+    assert not is_digest("Reliance Q2 results", "Profit rose 9%, plus higher Jio margins")
+
+
+def test_digest_flagged_after_enrichment():
+    from datetime import datetime
+    from news_scraper.models import Article
+    from news_scraper.pipeline import NewsPipeline
+    from news_scraper.timeutils import IST
+    a = Article(source="google_news", source_type="news", title="Reliance Industries Asia IP Elite interview",
+                url="u", published_at=datetime(2026, 11, 8, 17, 12, tzinfo=IST), summary=IAM_LEDE)
+    a.relevance_score = 1.0
+    b = Article(source="google_news", source_type="news", title="Reliance Q2 profit rises 9%",
+                url="v", published_at=datetime(2026, 11, 8, 17, 12, tzinfo=IST), summary="Net profit beat estimates.")
+    b.relevance_score = 1.0
+    NewsPipeline._flag_digests([a, b])
+    assert a.tags == ["roundup"] and a.relevance_score == 0.5 and a.meta["digest_from"] == "summary"
+    assert b.tags == [] and b.relevance_score == 1.0

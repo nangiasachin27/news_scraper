@@ -42,6 +42,16 @@ RELIANCE:
 TCS:
   aliases: [Tata Consultancy Services, Tata Consultancy]
   strict_aliases: [TCS]
+  # Sponsorships and CSR carry the brand but no business news.
+  exclude_terms:
+    - Jaguar TCS Racing
+    - TCS Foundation
+    - TCS World 10K
+    - TCS London Marathon
+    - TCS New York City Marathon
+    - TCS Sydney Marathon
+    - TCS Amsterdam Marathon
+    - TCS Toronto Waterfront Marathon
 
 INFY:
   aliases: [Infosys]

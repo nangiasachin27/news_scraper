@@ -13,7 +13,11 @@ and skip this step. News is matched against aliases with these safeguards:
   text; a full-name hit there restores the score and drops the tag.
 * Counterparty mentions ("X bags order from <ticker>") score 0.5, tagged ``counterparty``.
 * Market round-ups ("Stocks to watch: A, B, C...") score 0.5 (0.3 summary-only),
-  tagged ``roundup``.
+  tagged ``roundup``. Multi-story digests ("A; B; C; plus much more", "Get ready for the
+  week with a summary of all the stories...") are round-ups too: the ticker is one item
+  in a list, and FinBERT reads the list as neutral noise. ``is_digest`` checks the title
+  before enrichment and title + summary after it (never the body: article bodies carry
+  "newsletter"/"read more" boilerplate).
 
 Score: 1.0 title, 0.6 summary-only or acronym-only, 0.5 counterparty/round-up.
 """
@@ -30,6 +34,51 @@ ROUNDUP_RE = re.compile(
     r"\blive updates?\b|stocks? (that|which) (moved|hogged)",
     re.I,
 )
+
+# Weekly / daily digests that list many unrelated stories. Kept specific: a false hit
+# halves a real story's weight.
+DIGEST_RE = re.compile(
+    r"\bplus (much|lots|plenty|a lot) more\b|\band (much|lots) more\s*$|"
+    r"\bweek in (review|brief)\b|\bweekly (round-?up|wrap|digest|recap|briefing)\b|"
+    r"\b(news|morning|evening) (digest|round-?up|briefing)\b|"
+    r"\bsummary of (all )?the (stories|news|articles)\b|\beverything we covered\b|"
+    r"\b(stories|articles) (posted|published) .{0,40}\b(past|last) (seven|7|few) days\b",
+    re.I,
+)
+
+
+def is_digest(title: str | None, lede: str | None = None) -> bool:
+    """True for multi-story digests: four or more headline clauses joined by ';' in the
+    title, or digest wording in the title or its lede (summary). Two or three clauses are
+    left alone: "RIL Q2: profit up 9%; Jio ARPU rises; retail slows" is one company's news."""
+    title = title or ""
+    if title.count(";") >= 3:
+        return True
+    return bool(DIGEST_RE.search(title) or (lede and DIGEST_RE.search(lede)))
+
+
+# Quote pages, company landing pages and share-price live blogs. They are not news, and
+# their text is rewritten all day: fetched after the window, the page carries prices
+# from after the decision time. Dropped outright (before and after enrichment, since
+# Google redirect links only reveal the publisher URL once decoded).
+QUOTE_TITLE_RE = re.compile(
+    r"\b(share|stock) price (today|live)\b|\b(share|stock) price\b.{0,40}\blive (updates?|blog)\b|"
+    r"\bstock price\s*(&|and)\s*(latest )?news\b|\bstock price, news, quote\b|"
+    r"\bquotes? (and|&) (history|news)\b|\([A-Z0-9&-]+\.(NS|BO)\)\s*[|:-]|"
+    r"\b(share|stock) price,? (chart|history|target today)\b",
+    re.I,
+)
+QUOTE_URL_RE = re.compile(
+    r"/quotes?/|/stockpricequote/|/markets/companies/|/stock-liveblog/|/market-stats/|"
+    r"/companyid-|/stock-market/quote/|/stocks?/[a-z0-9.-]+/(quote|overview)\b",
+    re.I,
+)
+
+
+def is_quote_page(title: str | None, url: str | None = None) -> bool:
+    """Quote / landing / price live-blog page rather than an article."""
+    return bool((title and QUOTE_TITLE_RE.search(title)) or (url and QUOTE_URL_RE.search(url)))
+
 
 # Text immediately before the alias: "...order(s)/contract/deal/mandate ... from|by <alias>".
 # Periods are allowed in the gap ("order of Rs. 1.54 crore from RIL"); ':' and '|' end
@@ -97,7 +146,7 @@ class RelevanceMatcher:
         if title_hits and self._counterparty_only(masked_title):
             tags.append("counterparty")
             score = min(score, 0.5)
-        if ROUNDUP_RE.search(title):
+        if ROUNDUP_RE.search(title) or is_digest(title):
             tags.append("roundup")
             score = min(score, 0.5 if title_hits else 0.3)
         return score, matched, tags

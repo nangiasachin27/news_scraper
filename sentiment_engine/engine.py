@@ -16,7 +16,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
-from news_scraper.timeutils import is_date_only, now_ist
+from news_scraper.timeutils import is_date_only, is_legacy_exchange_date, now_ist
 from news_scraper.writer import write_json
 
 from .aggregate import aggregate, article_weight, combine_units, label_for, text_units
@@ -32,14 +32,19 @@ SUMMARY_FIELDS = [
 
 
 def time_precision(art: dict[str, Any]) -> str:
-    """'date' or 'exact'. News scraped before the date-only fix carries no flag, so
-    placeholder times (a whole hour in UTC) are detected here rather than assumed exact."""
+    """'date' or 'exact'. Items scraped before the date-only fixes carry no flag, so
+    placeholder times are detected here rather than assumed exact: a whole hour in UTC
+    for news, exactly midnight IST for exchange filings."""
     flag = (art.get("meta") or {}).get("time_precision")
     if flag:
         return flag
-    if art.get("source_type") == "news" and art.get("published_at"):
-        return "date" if is_date_only(datetime.fromisoformat(art["published_at"])) else "exact"
-    return "exact"
+    if not art.get("published_at"):
+        return "exact"
+    pub = datetime.fromisoformat(art["published_at"])
+    if art.get("source_type") == "news":
+        return "date" if is_date_only(pub) else "exact"
+    # exchange items scraped before date-only parsing was fixed sit at 00:00:00 IST
+    return "date" if is_legacy_exchange_date(pub, art.get("source_type")) else "exact"
 
 
 def summary_row(payload: dict[str, Any]) -> dict[str, Any]:
@@ -150,7 +155,8 @@ class SentimentEngine:
                 "category": art.get("category"),
                 "impact_tier": art.get("impact_tier"),
                 "text_source": (art.get("meta") or {}).get("text_source"),
-                # "date" = the feed gave only a date; published_at is then end of that day.
+                # "date" = the source gave only a date; published_at is then the latest
+                # moment it could have appeared (see timeutils.known_at).
                 # Backtests use this to decide when the item was knowable.
                 "time_precision": time_precision(art),
                 "tags": art.get("tags") or [],

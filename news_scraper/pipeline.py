@@ -19,11 +19,12 @@ from .dedup import dedupe
 from .enrich import Enricher, text_source
 from .http import HttpClient
 from .models import SCHEMA_VERSION, Article, SourceResult, TickerInfo
-from .relevance import RelevanceMatcher
+from .relevance import RelevanceMatcher, is_digest, is_quote_page
+from .textutils import story_tokens
 from .sources import build_sources
 from .ticker_resolver import TickerResolver
 from .timeutils import IST, compute_window, load_holidays, now_ist
-from .writer import merge_with_existing, output_path, reuse_enrichment, sort_articles, write_json
+from .writer import merge_with_existing, output_path, reuse_enrichment, sort_articles, trim_to_window, write_json
 
 log = logging.getLogger(__name__)
 
@@ -83,6 +84,13 @@ class NewsPipeline:
         if self.enricher.active:
             self.enricher.enrich(articles)
         self._confirm_acronyms(info, articles)
+        self._flag_digests(articles)
+        # decoded publisher URLs can reveal quote pages the headline didn't
+        quote_pages = [a for a in articles if a.source_type == "news" and is_quote_page(a.title, a.url)]
+        if quote_pages:
+            articles = [a for a in articles if a not in quote_pages]
+            stats["dropped_quote_page"] = stats.get("dropped_quote_page", 0) + len(quote_pages)
+            stats["kept"] = len(articles)
         for a in articles:
             if a.source_type == "news":
                 a.meta["text_source"] = text_source(a)
@@ -97,7 +105,14 @@ class NewsPipeline:
             a.first_seen_at = a.first_seen_at or generated
             new_dicts.append(a.to_dict())
 
-        final = merge_with_existing(path, new_dicts) if self.settings.merge_existing else new_dicts
+        if self.settings.merge_existing:
+            final = merge_with_existing(path, new_dicts, self.settings.date_only_policy)
+            final, stale = trim_to_window(final, start, end)
+            if stale:
+                stats["dropped_out_of_window"] = len(stale)
+                log.info("%s: dropped %d carried-over item(s) now outside the window", info.symbol, len(stale))
+        else:
+            final = new_dicts
         final = sort_articles(final)
         source_status = {r.source: r.status() for r in results}
         payload = {
@@ -148,12 +163,35 @@ class NewsPipeline:
             a.tags = [t for t in a.tags if t not in self._RELEVANCE_TAGS] + tags
             a.meta["acronym_confirmed"] = True
 
+    @staticmethod
+    def _alias_stems(info: TickerInfo) -> frozenset[str]:
+        """The ticker's own name words, ignored when grouping stories: every headline
+        in its file contains them."""
+        words = [info.symbol, info.company_name or "", *info.aliases, *info.strict_aliases]
+        return frozenset().union(*(story_tokens(w) for w in words))
+
+    @staticmethod
+    def _flag_digests(articles: list[Article]) -> None:
+        """Enrichment can reveal a digest the title alone didn't ("Get ready for the
+        new working week with a summary of all the stories..."). Tag it ``roundup`` and
+        cap relevance at 0.5, as the title-time check would have."""
+        for a in articles:
+            if a.source_type != "news" or "roundup" in a.tags or not a.summary:
+                continue
+            if is_digest(a.title, a.summary):
+                a.tags.append("roundup")
+                a.relevance_score = min(a.relevance_score, 0.5)
+                a.meta["digest_from"] = "summary"
+
     def _postprocess(self, info: TickerInfo, articles: list[Article]) -> tuple[list[Article], dict[str, int]]:
         s = self.settings
         matcher = RelevanceMatcher(info)
         stats = {"in_window": len(articles), "dropped_irrelevant": 0, "dropped_noise": 0}
         kept: list[Article] = []
         for a in articles:
+            if a.source_type == "news" and is_quote_page(a.title, a.url):
+                stats["dropped_quote_page"] = stats.get("dropped_quote_page", 0) + 1
+                continue
             if a.source_type == "news":
                 score, matched, tags = matcher.score(a.title, a.summary)
                 if a.meta.get("source_ticker_tagged") and score < s.min_relevance:
@@ -189,7 +227,7 @@ class NewsPipeline:
                 stats["dropped_noise"] += 1
                 continue
             kept.append(a)
-        deduped = dedupe(kept, s)
+        deduped = dedupe(kept, s, self._alias_stems(info))
         stats["merged_duplicates"] = len(kept) - len(deduped)
         stats["kept"] = len(deduped)
         return deduped, stats

@@ -59,6 +59,17 @@ Results declared after market on `D` land in `D+1`, which is when they affect pr
 `exclude_terms` are masked *before* matching (Reliance Power never counts for RELIANCE),
 `strict_aliases` are case-sensitive (RIL, L&T, ITC), and market round-ups are capped at the
 threshold and tagged `roundup`. Group companies sharing a brand need entries in `config/aliases.yaml`.
+Multi-story digests are tagged `roundup` too. Quote pages, company landing pages and
+share-price live blogs are dropped (`stats.dropped_quote_page`): they aren't news, and
+their text changes all day. Sponsorship and CSR brand uses ("Jaguar TCS Racing", "TCS
+Foundation") are `exclude_terms`.
+
+**Story grouping.** After near-identical titles are merged, headlines about one event in
+different words ("Jaleel named accused in TCS Nashik case" from six outlets) are grouped:
+3+ shared distinctive words making up 40%+ of the shorter headline's
+(`Settings.story_min_shared` / `story_min_overlap`, off with `story_grouping=False`). The
+earliest item is kept, other outlets go to `also_reported_by` (the sentiment engine's
+syndication bonus, capped), merged titles to `meta.story_titles`.
 
 **Impact tiers** (`classifier.py`) are a weighting prior for the sentiment engine, not a direction call.
 Noise rules run first because zero-information filings often contain high-impact keywords
@@ -213,15 +224,26 @@ Output: `data/sentiment/summary_<start>_<end>.csv` — one row per (date, ticker
 # Backtesting: sentiment_backtest
 
 **The timestamp problem.** For older articles Google News gives a date only, which the feed
-renders as a fixed time (12:30 or 13:30 IST). Taken literally, news published after the
-close on day D looks as if it was known before D's close: lookahead. Live runs get real times.
+renders as midnight US Pacific time: 07:00 GMT under PDT, 08:00 GMT under PST (12:30 / 13:30
+IST). The date is the *Pacific* date, so the article may have come out at any moment in the
+next 24 hours, up to 12:29 / 13:29 IST the following day. Taken literally, news published
+after the close on day D looks as if it was known before D's close: lookahead. Live runs get
+real times. Exchange APIs can return date-only fields too (e.g. `05-Nov-2026`).
 
-**How the scraper handles it now.** Date-only items are flagged `meta.time_precision: "date"`
-and moved to 23:59:59 of their date (original in `meta.reported_published_at`), so they fall
-into the *next* session's window. `Settings.date_only_policy = "keep"` restores the old behaviour.
+**How the scraper handles it now.** Every date-only item is flagged
+`meta.time_precision: "date"` (original value in `meta.reported_published_at`, source field in
+`meta.time_field` for exchange rows) and stored at the **latest moment it could have appeared**:
+Google items at placeholder + 23:59:59 (12:29:59 / 13:29:59 IST next day), exchange items at
+23:59:59 IST of their date. Both fall into the session window they cannot postdate.
+`Settings.date_only_policy = "keep"` restores the raw placeholder for Google items.
+
+Re-running a date also re-applies these rules to items carried over from the existing file
+and drops any that no longer belong to the window (`stats.dropped_out_of_window`), so files
+written by older code are cleaned on the next run.
 
 **How the backtester stays honest.** Every item gets a `known_at`: its timestamp when exact,
-end of its date when date-only. A signal for a decision uses only items known before it:
+the latest moment it could have appeared when date-only (`news_scraper.timeutils.known_at`).
+A signal for a decision uses only items known before it:
 
 | Decision | Signal uses items known in | Returns measured |
 |---|---|---|
@@ -230,7 +252,8 @@ end of its date when date-only. A signal for a decision uses only items known be
 
 Media news therefore reaches the backtest up to a day later than production: the backtest is a
 **conservative lower bound** on the live system. Files scored before the precision flag existed
-are handled by detecting the placeholder times; ex-dividend headlines are zero-weighted.
+are handled by detecting placeholder times (whole UTC hours for media, exactly 00:00:00 IST for
+filings, 23:59:59 IST from the previous rule); ex-dividend headlines are zero-weighted.
 
 ```powershell
 python -m pip install -r requirements-backtest.txt
@@ -289,7 +312,7 @@ python -m sentiment_backtest.export --start 2026-01-01 --end 2026-10-31 --out se
 One row per scraped ticker-day: `date, symbol, decision_time, score, weight, n, n_neg, n_pos,
 date_only_share, negative`. Rows are computed by the backtester's own signal code, so they are
 point-in-time: the row for day T uses only news known before 15:15 IST on T (date-only
-timestamps count at the end of their day). `negative` is the frozen rule (score ≤ −0.25,
+timestamps count at the latest moment they could have appeared). `negative` is the frozen rule (score ≤ −0.25,
 weight ≥ 1.0, n_neg > n_pos). A scraped day with no news has a row with `n = 0`; a ticker-day
 that was never scraped has **no row**, and consumers should treat it as unknown.
 

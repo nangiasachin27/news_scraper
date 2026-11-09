@@ -14,7 +14,7 @@ from datetime import datetime
 
 from ..models import Article, Attachment, TickerInfo
 from ..textutils import strip_html
-from ..timeutils import parse_exchange_dt
+from ..timeutils import exchange_time, parse_exchange_dt
 from .base import Source, register
 
 NSE_API = "https://www.nseindia.com/api"
@@ -115,7 +115,7 @@ class NSEAnnouncements(_NSESource):
         for r in _rows(data):
             if _symbol_mismatch(r, ticker, "symbol"):
                 continue
-            ts = parse_exchange_dt(_first(r, "sort_date", "an_dt", "exchdisstime"))
+            ts, tmeta = exchange_time(r, "sort_date", "an_dt", "exchdisstime")
             title = strip_html(_first(r, "desc"))
             if not ts or not title:
                 continue
@@ -134,6 +134,7 @@ class NSEAnnouncements(_NSESource):
                         "exchange": "NSE",
                         "exchange_id": _first(r, "seq_id"),
                         "industry": _first(r, "smIndustry"),
+                        **tmeta,
                     },
                 )
             )
@@ -163,7 +164,7 @@ class NSEFinancialResults(_NSESource):
             for r in _rows(data):
                 if _symbol_mismatch(r, ticker, "symbol"):
                     continue
-                ts = parse_exchange_dt(_first(r, "broadCastDate", "exchdisstime", "filingDate"))
+                ts, tmeta = exchange_time(r, "broadCastDate", "exchdisstime", "filingDate")
                 if not ts:
                     continue
                 consolidated = str(_first(r, "consolidated") or "").strip()
@@ -209,6 +210,7 @@ class NSEFinancialResults(_NSESource):
                             "financial_year": _first(r, "financialYear"),
                             "consolidated": consolidated or None,
                             "audited": audited or None,
+                            **tmeta,
                         },
                     )
                 )
@@ -236,7 +238,7 @@ class NSEBoardMeetings(_NSESource):
         for r in _rows(data):
             if _symbol_mismatch(r, ticker, "bm_symbol", "symbol"):
                 continue
-            ts = parse_exchange_dt(_first(r, "bm_timestamp", "attchmntTime"))
+            ts, tmeta = exchange_time(r, "bm_timestamp", "attchmntTime")
             if not ts:
                 continue
             meeting_date = _first(r, "bm_date")
@@ -255,7 +257,7 @@ class NSEBoardMeetings(_NSESource):
                     category="board_meeting",
                     impact_tier="medium",
                     attachments=[att] if att else [],
-                    meta={"exchange": "NSE", "meeting_date": meeting_date, "purpose": purpose or None},
+                    meta={"exchange": "NSE", "meeting_date": meeting_date, "purpose": purpose or None, **tmeta},
                 )
             )
         return out

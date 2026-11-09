@@ -8,7 +8,7 @@ import re
 
 from ..models import Article, Attachment
 from ..textutils import strip_html
-from ..timeutils import parse_exchange_dt
+from ..timeutils import exchange_time
 from .base import Source, register
 
 BSE_ANN_URL = "https://api.bseindia.com/BseIndiaAPI/api/AnnSubCategoryGetData/w"
@@ -61,7 +61,7 @@ class BSEAnnouncements(Source):
 
         out: list[Article] = []
         for r in rows:
-            ts = parse_exchange_dt(r.get("DissemDT") or r.get("NEWS_DT") or r.get("DT_TM"))
+            ts, tmeta = exchange_time(r, "DissemDT", "NEWS_DT", "DT_TM")
             headline = strip_html(r.get("HEADLINE"))
             title = clean_bse_subject(strip_html(r.get("NEWSSUB"))) or headline
             if not ts or not title:
@@ -89,6 +89,7 @@ class BSEAnnouncements(Source):
                         "exchange_id": r.get("NEWSID"),
                         "bse_category": r.get("CATEGORYNAME"),
                         "bse_subcategory": r.get("SUBCATNAME"),
+                        **tmeta,
                     },
                 )
             )

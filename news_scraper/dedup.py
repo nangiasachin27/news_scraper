@@ -10,6 +10,10 @@ Two distinct problems, two passes:
 * Media syndication: one wire story republished by many outlets. Kept once at the
   earliest timestamp; ``also_reported_by`` lists the other publishers. The count is
   a usable coverage-intensity feature, so it is preserved rather than discarded.
+* Story grouping (news): the same event reported by several outlets in their own
+  words. Near-identical titles are caught above; this pass merges headlines that share
+  enough distinctive words (``textutils.same_story``), single-link, earliest item kept.
+  The merged titles are kept in ``meta.story_titles`` for audit.
 
 O(n^2) per ticker-day; n is in the tens to low hundreds.
 """
@@ -17,7 +21,7 @@ from __future__ import annotations
 
 from .config import Settings
 from .models import Article
-from .textutils import similarity
+from .textutils import same_story, similarity, story_tokens
 
 FILING_PRIORITY = {"nse_announcements": 0, "bse_announcements": 1}
 
@@ -89,11 +93,49 @@ def _dedupe_news(items: list[Article], s: Settings) -> list[Article]:
     return kept
 
 
-def dedupe(articles: list[Article], settings: Settings) -> list[Article]:
+_TIER_RANK = {"high": 4, "medium": 3, "low": 2, "unclassified": 1, "noise": 0}
+
+
+def _group_stories(items: list[Article], s: Settings, ignore: frozenset[str]) -> list[Article]:
+    items = sorted(items, key=lambda a: a.published_at)
+    kept: list[tuple[Article, list[frozenset[str]]]] = []
+    for a in items:
+        toks = story_tokens(a.title, ignore)
+        match = next(
+            (entry for entry in kept
+             if any(same_story(toks, t, s.story_min_shared, s.story_min_overlap) for t in entry[1])),
+            None,
+        )
+        if match is None:
+            kept.append((a, [toks]))
+            continue
+        keep, members = match
+        members.append(toks)
+        label = a.publisher or a.source
+        if label != keep.publisher:
+            _union(keep.also_reported_by, [label])
+        _union(keep.also_reported_by, [p for p in a.also_reported_by if p != keep.publisher])
+        keep.relevance_score = max(keep.relevance_score, a.relevance_score)
+        _union(keep.matched_terms, a.matched_terms)
+        if _TIER_RANK.get(a.impact_tier or "unclassified", 1) > _TIER_RANK.get(keep.impact_tier or "unclassified", 1):
+            keep.category, keep.impact_tier = a.category, a.impact_tier
+        if not keep.summary and a.summary:
+            keep.summary = a.summary
+        keep.meta.setdefault("story_titles", [])
+        if len(keep.meta["story_titles"]) < 10:
+            keep.meta["story_titles"].append(a.title)
+    return [k for k, _ in kept]
+
+
+def dedupe(articles: list[Article], settings: Settings, ignore_words: frozenset[str] = frozenset()) -> list[Article]:
+    """``ignore_words``: the ticker's own alias words (4-letter stems), left out when
+    comparing headlines for story grouping."""
     by_id: dict[str, Article] = {}
     for a in articles:
         by_id.setdefault(a.id, a)
     unique = list(by_id.values())
     filings = [a for a in unique if a.source_type != "news"]
-    news = [a for a in unique if a.source_type == "news"]
-    return _dedupe_filings(filings, settings) + _dedupe_news(news, settings)
+    news = _dedupe_news([a for a in unique if a.source_type == "news"], settings)
+    if settings.story_grouping:
+        news = _group_stories(news, settings, ignore_words)
+    return _dedupe_filings(filings, settings) + news

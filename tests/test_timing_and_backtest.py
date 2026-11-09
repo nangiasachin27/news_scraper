@@ -9,7 +9,7 @@ import pytest
 from news_scraper.models import Article
 from news_scraper.pipeline import NewsPipeline
 from news_scraper.sources.news import GoogleNews
-from news_scraper.timeutils import IST, end_of_local_day, is_date_only, known_at
+from news_scraper.timeutils import IST, date_only_placeholder, end_of_local_day, is_date_only, known_at, latest_bound
 from sentiment_backtest.core import BacktestSettings, build_signals, load_items, parity, run_backtest
 from sentiment_engine.config import SentimentSettings, select_units
 
@@ -32,8 +32,27 @@ def test_date_only_detection_and_known_at():
     exact = datetime(2026, 11, 5, 9, 42, 33, tzinfo=IST)
     assert is_date_only(placeholder) and not is_date_only(exact)
     assert end_of_local_day(placeholder) == datetime(2026, 11, 5, 23, 59, 59, tzinfo=IST)
-    assert known_at(placeholder, "date") == datetime(2026, 11, 5, 23, 59, 59, tzinfo=IST)
+    # Google's date is a US Pacific date: the item may be up to 24h after the placeholder
+    assert latest_bound(placeholder) == datetime(2026, 11, 6, 12, 29, 59, tzinfo=IST)
+    assert known_at(placeholder, "date") == datetime(2026, 11, 6, 12, 29, 59, tzinfo=IST)
+    # stored bound (current scrapes) is returned unchanged
+    assert known_at(datetime(2026, 11, 6, 12, 29, 59, tzinfo=IST), "date") == datetime(2026, 11, 6, 12, 29, 59, tzinfo=IST)
+    # 23:59:59 from the previous end_of_day rule: PST bound, next day 13:29:59
+    assert known_at(datetime(2026, 11, 5, 23, 59, 59, tzinfo=IST), "date") == datetime(2026, 11, 6, 13, 29, 59, tzinfo=IST)
+    # exchange date-only fields are IST dates
+    assert known_at(datetime(2026, 11, 5, 23, 59, 59, tzinfo=IST), "date", "exchange_filing") == \
+        datetime(2026, 11, 5, 23, 59, 59, tzinfo=IST)
     assert known_at(exact, "exact") == exact
+
+
+def test_pacific_placeholder_both_dst_states():
+    # 07:00Z under PDT (October), 08:00Z under PST (November): bound is 24h-1s later either way
+    pdt = datetime.fromisoformat("2026-10-29T07:00:00+00:00")
+    pst = datetime.fromisoformat("2026-11-04T08:00:00+00:00")
+    assert latest_bound(pdt).astimezone(IST) == datetime(2026, 10, 30, 12, 29, 59, tzinfo=IST)
+    assert latest_bound(pst).astimezone(IST) == datetime(2026, 11, 5, 13, 29, 59, tzinfo=IST)
+    # date_only_placeholder reproduces what Google shows for an exact time
+    assert date_only_placeholder(datetime(2026, 11, 5, 11, 0, tzinfo=IST)) == pst.astimezone(IST)
 
 
 def test_google_date_only_item_moves_to_next_session(settings):
@@ -48,7 +67,7 @@ def test_google_date_only_item_moves_to_next_session(settings):
     fri = json.loads(NewsPipeline(s, http=FakeHttp(routes)).run(date(2026, 11, 6), ["RELIANCE"])[0].path.read_text("utf-8"))
     moved = [a for a in fri["articles"] if "record quarterly profit" in a["title"]]
     assert len(moved) == 1
-    assert moved[0]["published_at"] == "2026-11-05T23:59:59+05:30"
+    assert moved[0]["published_at"] == "2026-11-06T12:29:59+05:30"  # latest bound, still before Fri close
     assert moved[0]["meta"]["time_precision"] == "date"
     assert moved[0]["meta"]["reported_published_at"].startswith("2026-11-05T12:30:00")
 
@@ -141,9 +160,10 @@ def test_no_lookahead_on_date_only_items(bt):
     assert ("open", tue) not in s
     # Tuesday close (15:15): the exact 10:00 filing and 11:00 news, NOT the date-only item
     assert s[("close", tue)].n == 2
-    # Wednesday open: the date-only item becomes known (23:59 Tue) alongside the rest
-    assert s[("open", wed)].n == 3
-    # Wednesday close: date-only item known since Tue 23:59 is inside [Tue 15:15, Wed 15:15)
+    # Wednesday open: the exact Tuesday items only. The date-only item may have been
+    # published as late as Wed 12:29 IST (Pacific date), so it is NOT known at Wed 09:15.
+    assert s[("open", wed)].n == 2
+    # Wednesday close: known by Wed 12:29:59, inside [Tue 15:15, Wed 15:15)
     assert s[("close", wed)].n == 1
     assert s[("close", wed)].date_only_share == 1.0
 
@@ -155,9 +175,13 @@ def test_ex_dividend_items_zeroed_in_old_files(bt):
 
 
 def test_degrade_moves_exact_media_but_not_filings(bt):
-    s = _sig(replace(bt, degrade_media=True))
-    tue = date(2026, 3, 3)
-    assert s[("close", tue)].n == 1  # only the exact filing survives at Tuesday close
+    items = load_items(replace(bt, degrade_media=True), CAL[0], CAL[-1]).set_index("id")
+    # 11:00:09 IST Tue = Mon 21:30 PST -> Google shows Mon's date -> known by Tue 13:29:59
+    assert items.loc["a3", "precision"] == "date"
+    assert items.loc["a3", "known_at"] == datetime(2026, 3, 3, 13, 29, 59, tzinfo=IST)
+    # filings keep their exact time
+    assert items.loc["a2", "precision"] == "exact"
+    assert items.loc["a2", "known_at"] == datetime(2026, 3, 3, 10, 0, 7, tzinfo=IST)
 
 
 def test_parity_detects_difference(bt):

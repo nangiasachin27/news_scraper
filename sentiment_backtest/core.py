@@ -29,7 +29,7 @@ import pandas as pd
 
 from news_scraper.classifier import is_mechanical
 from news_scraper.config import PROJECT_DIR
-from news_scraper.timeutils import IST, is_date_only, known_at
+from news_scraper.timeutils import IST, date_only_placeholder, is_date_only, is_legacy_exchange_date, known_at
 
 log = logging.getLogger(__name__)
 
@@ -106,10 +106,16 @@ def load_items(cfg: BacktestSettings, start: date, end: date) -> pd.DataFrame:
                 is_news = a.get("source_type") == "news"
                 # A media item whose time is a placeholder (whole hour UTC) is date-only, whatever
                 # its label says: files scored from pre-fix news were labelled "exact" by default.
-                # Erring this way only delays an item, never lets it leak forward.
-                precision = "date" if a.get("time_precision") == "date" or (is_news and is_date_only(pub)) else "exact"
-                if cfg.degrade_media and is_news:
-                    precision = "date"
+                # Likewise an unflagged filing at exactly 00:00:00 IST is a pre-fix date-only
+                # exchange field. Erring this way only delays an item, never lets it leak forward.
+                precision = "date" if (
+                    a.get("time_precision") == "date"
+                    or (is_news and is_date_only(pub))
+                    or is_legacy_exchange_date(pub, a.get("source_type"))
+                ) else "exact"
+                if cfg.degrade_media and is_news and precision != "date":
+                    # as a backfill would see it: the Pacific-midnight placeholder of its date
+                    pub, precision = date_only_placeholder(pub), "date"
                 if cfg.zero_mechanical and is_news and is_mechanical(a.get("title")):
                     base = 0.0
                 if base <= 0:
@@ -117,7 +123,7 @@ def load_items(cfg: BacktestSettings, start: date, end: date) -> pd.DataFrame:
                 rows.append(dict(
                     symbol=sym, id=a["id"], source_type=a.get("source_type"), title=a.get("title"),
                     score=float(a["score"]), base_weight=float(base), precision=precision,
-                    known_at=known_at(pub, precision), materiality=a.get("materiality"),
+                    known_at=known_at(pub, precision, a.get("source_type")), materiality=a.get("materiality"),
                 ))
     items = pd.DataFrame(rows)
     if items.empty:
