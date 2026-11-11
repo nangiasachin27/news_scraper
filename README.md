@@ -382,3 +382,58 @@ python -m news_scraper export-csv --start 2026-01-01 --end 2026-09-22 --tickers 
 (`--force` rewrites all). `--no-combined` skips `_articles.csv`. In the daily GitHub workflow,
 put `--csv` in the *extra* field (or in the workflow's `--` options) to keep CSVs in the
 artifact.
+
+## Running commands on GitHub instead of your PC
+
+**run-command** (`.github/workflows/run_command.yml`): *Actions → run-command → Run workflow*
+and paste a command, for example
+`python run_pipeline.py --start 2026-01-01 --end 2026-03-31 --tickers RELIANCE --csv --skip-existing`.
+The command must start with `python run_pipeline.py`, `python -m news_scraper`,
+`python -m sentiment_engine`, `python -m sentiment_backtest`, `python scrape_pairs.py`,
+`python daily_sentiment.py` or `python fetch_prices.py`. Its `data/`, `out/`, `logs/` and root
+`*.csv` files become an artifact on the run page (`gh run download <id>`). `data/` is also cached,
+so a later run (an `export-csv`, or the same scrape with `--skip-existing` after a timeout)
+continues from it. That cache is best-effort: GitHub evicts entries unused for 7 days.
+
+**backfill** (`.github/workflows/backfill.yml`): for long historical scrapes. Give the tickers,
+start, end and chunk size (quarter by default). Each chunk runs as its own job, 8 at a time, on
+its own runner, so it also gets its own IP for Google and NSE rate limits. A final job merges
+them into one artifact:
+
+- `news_<tickers>_<start>_<end>.csv`: every article
+- `sentiment_<tickers>_<start>_<end>.csv`: one row per date and ticker
+- the full JSON
+
+**Time limits.** A GitHub-hosted job is cancelled after 6 hours. `run-command` gives the
+command 5½ hours, leaving time to upload whatever it finished. `backfill` keeps every chunk well
+under the limit. If a chunk fails anyway, use *Re-run failed jobs*.
+
+**Cost.** Standard runners are free for public repos. A private repo on the Free plan has 2,000
+runner-minutes a month, and every parallel chunk counts separately.
+
+## Permanent news archive (GitHub Releases)
+
+Every trading day, the daily workflow zips that day's news and sentiment and attaches the
+zip to a monthly release in this repo: tag `news-archive-YYYY-MM`, asset `news_<date>.zip`.
+The releases are marked pre-release, so they never show as "latest", and they don't count
+toward the repo's size. Each zip holds:
+
+- `data/news/<date>/*.json`: every article (title, summary, body, URL, times, tags)
+- `data/sentiment/<date>/*`: the gate's scores, on the units set by `GATE_UNITS` in the workflow
+- `data/sentiment_title/<date>/*`: headline-only scores, the backtested setting, kept for comparison
+- `extras/`: the gate CSV, the headline-only CSV, and the run log
+
+```powershell
+python archive_release.py list --start 2026-11-01                         # what's archived
+python archive_release.py restore --start 2026-11-01 --end 2026-11-30     # unzip into .\data
+python -m news_scraper export-csv --start 2026-11-01 --end 2026-11-30 --out nov.csv   # then use as usual
+```
+
+`restore` needs no login for a public repo. Days already on disk are skipped unless you pass
+`--overwrite`. To copy days that so far exist only as daily-run artifacts (kept 14 days now,
+90 before this change), run **Actions → archive-backfill** once.
+
+**Gate units.** `GATE_UNITS` (top of `daily_sentiment.yml`) chooses what the gate CSV is
+scored on: `all` (title 0.5 + summary 0.3 + body 0.2), `title,summary`, or `title`.
+Only `title` was validated by the Jan–Sep 2026 backtest. Headline-only scores are archived
+daily either way, so the settings can be compared on live data before trusting a change.

@@ -1,0 +1,96 @@
+# Run one news_scraper / sentiment command on GitHub instead of your PC.
+#   Actions -> run-command -> Run workflow -> paste the command, e.g.
+#   python run_pipeline.py --start 2026-01-01 --end 2026-03-31 --tickers RELIANCE --csv --skip-existing
+#
+# Results: everything under data/, out/ and logs/ (and any *.csv in the repo root) is uploaded as
+# an artifact on the run page; `gh run download <run id>` fetches it from a terminal.
+# The data/ folder is also kept in the Actions cache, so a later run (e.g. export-csv, or the
+# same scrape with --skip-existing after a timeout) continues from it. The cache is best-effort:
+# GitHub evicts entries unused for 7 days and caps the repo at 10 GB - the artifact is the record.
+#
+# Limits: a GitHub-hosted job is cancelled at 6 h. The command gets 5 h 30 m so the upload still
+# runs; for longer scrapes use the `backfill` workflow, which splits the range into parallel jobs.
+# Only people with write access to this repo can start it.
+name: run-command
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        description: "python run_pipeline.py ... | python -m news_scraper ... | python -m sentiment_backtest ... | python scrape_pairs.py ..."
+        required: true
+      scoring:
+        description: "install FinBERT (needed for sentiment; off = faster setup for scrape/export only)"
+        type: boolean
+        default: true
+      retention_days:
+        description: "keep the result artifact this many days"
+        default: "30"
+permissions: {contents: read}
+env:
+  TZ: Asia/Kolkata
+  HF_HUB_DISABLE_TELEMETRY: "1"
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check command
+        env: {CMD: "${{ inputs.command }}"}
+        run: |
+          case "$CMD" in
+            "python run_pipeline.py "*|"python -m news_scraper "*|"python -m sentiment_engine "*|\
+            "python -m sentiment_backtest"*|"python scrape_pairs.py "*|"python daily_sentiment.py "*|\
+            "python fetch_prices.py"*) echo "ok: $CMD" ;;
+            *) echo "::error::command must start with python run_pipeline.py / -m news_scraper / -m sentiment_engine / -m sentiment_backtest / scrape_pairs.py / daily_sentiment.py / fetch_prices.py"; exit 1 ;;
+          esac
+
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip, cache-dependency-path: "requirements*.txt"}
+      - name: Install
+        env: {SCORING: "${{ inputs.scoring }}"}
+        run: |
+          if [ "$SCORING" = "true" ]; then pip install torch --index-url https://download.pytorch.org/whl/cpu; pip install -r requirements-sentiment.txt; fi
+          pip install -r requirements.txt -r requirements-backtest.txt
+
+      - uses: actions/cache@v4
+        with: {path: ~/.cache/huggingface, key: hf-finbert-v1}
+      - uses: actions/cache/restore@v4
+        with: {path: data, key: "data-${{ github.run_id }}", restore-keys: "data-"}
+
+      - name: Run
+        timeout-minutes: 330
+        env: {CMD: "${{ inputs.command }}"}
+        run: |
+          mkdir -p out logs
+          echo "$CMD" > logs/command.txt
+          set -o pipefail
+          bash -c "$CMD" 2>&1 | tee logs/output.log
+
+      - name: Summary
+        if: always()
+        env: {CMD: "${{ inputs.command }}"}
+        run: |
+          {
+            echo "### run-command"
+            echo '```'; echo "$CMD"; echo '```'
+            echo "Last lines of output:"
+            echo '```'; tail -n 25 logs/output.log 2>/dev/null; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/cache/save@v4
+        if: always()
+        with: {path: data, key: "data-${{ github.run_id }}"}
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: result-${{ github.run_id }}
+          path: |
+            data
+            out
+            logs
+            *.csv
+          retention-days: ${{ inputs.retention_days }}
+          if-no-files-found: warn

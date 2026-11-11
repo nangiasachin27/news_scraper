@@ -1,0 +1,157 @@
+# Long historical scrapes on GitHub, split into parallel chunks so no job hits the 6 h limit.
+#   Actions -> backfill -> Run workflow: tickers "RELIANCE", start 2024-01-01, end 2026-11-11.
+#
+# plan    splits [start, end] into chunks (quarter by default)
+# scrape  one job per chunk, up to 8 at a time, each on its own runner (so its own IP for
+#         Google/NSE rate limits): run_pipeline.py --csv --skip-existing [--skip-sentiment]
+# combine merges every chunk's data/ and writes ONE news CSV (+ one sentiment summary CSV)
+#
+# Result: artifact "backfill-<tickers>-<start>_<end>" on the run page:
+#   news_<tickers>_<start>_<end>.csv        every article, one row each
+#   sentiment_<tickers>_<start>_<end>.csv   one row per (date, ticker), if scoring was on
+#   data/news, data/sentiment               the full JSON, for later re-scoring or export-csv
+# A chunk that runs out of time still uploads what it finished; re-run just the failed jobs
+# (Re-run failed jobs) and then the combine job, or run the workflow again for that range.
+name: backfill
+on:
+  workflow_dispatch:
+    inputs:
+      tickers: {description: "space-separated, e.g. RELIANCE \"M&M\" -> RELIANCE M&M", required: true}
+      start: {description: "YYYY-MM-DD", required: true}
+      end: {description: "YYYY-MM-DD (inclusive)", required: true}
+      chunk:
+        description: "split the range into"
+        type: choice
+        options: [quarter, month, year]
+        default: quarter
+      sources: {description: "optional --sources list (blank = all; drop google_news_sites to halve Google time)", required: false}
+      scoring: {description: "also score with FinBERT", type: boolean, default: true}
+permissions: {contents: read}
+env:
+  TZ: Asia/Kolkata
+  HF_HUB_DISABLE_TELEMETRY: "1"
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      chunks: ${{ steps.p.outputs.chunks }}
+      label: ${{ steps.p.outputs.label }}
+    steps:
+      - id: p
+        env: {START: "${{ inputs.start }}", END: "${{ inputs.end }}", CHUNK: "${{ inputs.chunk }}", TICKERS: "${{ inputs.tickers }}"}
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from datetime import date, timedelta
+          s, e = date.fromisoformat(os.environ["START"]), date.fromisoformat(os.environ["END"])
+          assert s <= e, "start is after end"
+          months = {"month": 1, "quarter": 3, "year": 12}[os.environ["CHUNK"]]
+          chunks, cur = [], s
+          while cur <= e:
+              m0 = (cur.month - 1) // months * months            # chunk-aligned start month (0-based)
+              y, m = cur.year + (m0 + months) // 12, (m0 + months) % 12 + 1
+              nxt = date(y, m, 1)
+              chunks.append({"start": cur.isoformat(), "end": min(nxt - timedelta(days=1), e).isoformat()})
+              cur = nxt
+          label = re.sub(r"[^A-Za-z0-9]+", "-", os.environ["TICKERS"]).strip("-")[:40]
+          with open(os.environ["GITHUB_OUTPUT"], "a") as fh:
+              fh.write(f"chunks={json.dumps(chunks)}\nlabel={label}\n")
+          print(f"{len(chunks)} chunk(s):", *(f"{c['start']}..{c['end']}" for c in chunks), sep="\n  ")
+          PY
+
+  scrape:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        chunk: ${{ fromJSON(needs.plan.outputs.chunks) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip, cache-dependency-path: "requirements*.txt"}
+      - name: Install
+        env: {SCORING: "${{ inputs.scoring }}"}
+        run: |
+          if [ "$SCORING" = "true" ]; then pip install torch --index-url https://download.pytorch.org/whl/cpu; pip install -r requirements-sentiment.txt; fi
+          pip install -r requirements.txt
+      - uses: actions/cache@v4
+        with: {path: ~/.cache/huggingface, key: hf-finbert-v1}
+      - uses: actions/cache@v4
+        with: {path: data/reference, key: "reference-${{ github.run_id }}-${{ matrix.chunk.start }}", restore-keys: reference-}
+      - name: Scrape ${{ matrix.chunk.start }} .. ${{ matrix.chunk.end }}
+        timeout-minutes: 330
+        env:
+          S: ${{ matrix.chunk.start }}
+          E: ${{ matrix.chunk.end }}
+          TICKERS: ${{ inputs.tickers }}
+          SOURCES: ${{ inputs.sources }}
+          SCORING: ${{ inputs.scoring }}
+        run: |
+          read -r -a T <<< "$TICKERS"
+          ARGS=(--start "$S" --end "$E" --tickers "${T[@]}" --csv --skip-existing --allow-sleep --log-file "logs/chunk_${S}.log")
+          if [ -n "$SOURCES" ]; then ARGS+=(--sources "$SOURCES"); fi
+          if [ "$SCORING" != "true" ]; then ARGS+=(--skip-sentiment); fi
+          python run_pipeline.py "${ARGS[@]}" || echo "::warning::chunk $S..$E finished incomplete (exit $?) - see logs/chunk_${S}.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chunk-${{ matrix.chunk.start }}
+          path: |
+            data/news
+            data/sentiment
+            logs
+          retention-days: 7
+          if-no-files-found: ignore
+
+  combine:
+    needs: [plan, scrape]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12", cache: pip, cache-dependency-path: "requirements*.txt"}
+      - run: pip install -r requirements.txt
+      - uses: actions/download-artifact@v4
+        with: {pattern: chunk-*, merge-multiple: true, path: .}
+      - name: One CSV for the whole range
+        env:
+          S: ${{ inputs.start }}
+          E: ${{ inputs.end }}
+          TICKERS: ${{ inputs.tickers }}
+          LABEL: ${{ needs.plan.outputs.label }}
+        run: |
+          mkdir -p out
+          read -r -a T <<< "$TICKERS"
+          python -m news_scraper export-csv --start "$S" --end "$E" --tickers "${T[@]}" --out "out/news_${LABEL}_${S}_${E}.csv" || true
+          python3 - "$LABEL" "$S" "$E" <<'PY'
+          import csv, glob, sys
+          label, s, e = sys.argv[1:]
+          rows, fields = [], None
+          for f in sorted(glob.glob("data/sentiment/summary_*.csv")):
+              with open(f, newline="", encoding="utf-8") as fh:
+                  r = csv.DictReader(fh); fields = fields or r.fieldnames; rows += list(r)
+          if rows:
+              rows.sort(key=lambda r: (r.get("date", ""), r.get("symbol", "")))
+              with open(f"out/sentiment_{label}_{s}_{e}.csv", "w", newline="", encoding="utf-8") as fh:
+                  w = csv.DictWriter(fh, fieldnames=fields); w.writeheader(); w.writerows(rows)
+          days = len({p.split('/')[-2] for p in glob.glob('data/news/*/*.json')})
+          print(f"{days} date folders, {len(rows)} sentiment rows")
+          PY
+          {
+            echo "### backfill $TICKERS $S .. $E"
+            ls -la out | sed 's/^/    /'
+            echo "Chunk results: see the scrape jobs above (a warning means that chunk is incomplete)."
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backfill-${{ needs.plan.outputs.label }}-${{ inputs.start }}_${{ inputs.end }}
+          path: |
+            out
+            data/news
+            data/sentiment
+            logs
+          retention-days: 30

@@ -67,6 +67,14 @@ def _summary(lines: list[str]) -> None:
             fh.write("\n".join(lines) + "\n")
 
 
+def _output(**values: str) -> None:
+    """Step outputs for later workflow steps (no-op outside GitHub Actions)."""
+    path = os.environ.get("GITHUB_OUTPUT")
+    if path:
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.writelines(f"{k}={v}\n" for k, v in values.items())
+
+
 def main(argv: list[str] | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     passthrough: list[str] = []
@@ -87,8 +95,10 @@ def main(argv: list[str] | None = None) -> int:
     settings = Settings()
     d = a.date or now_ist().date()
     if not is_trading_day(d, load_holidays(settings.holidays_file)):
+        _output(date=d.isoformat(), trading_day="false")
         _summary([f"### Sentiment {d}", f"{d} is not an NSE trading day - nothing to do."])
         return 0
+    _output(date=d.isoformat(), trading_day="true")
 
     try:
         if a.wrsi_universe:

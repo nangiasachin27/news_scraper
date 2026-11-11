@@ -1,0 +1,52 @@
+# One-off: copy days that so far exist only as daily-sentiment run artifacts (kept 90 days)
+# into the permanent release archive. Safe to re-run: days already archived are skipped
+# unless "overwrite" is ticked.
+name: archive-backfill
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "how many recent successful daily-sentiment runs to look at"
+        default: "100"
+      overwrite:
+        description: "replace days that are already archived"
+        type: boolean
+        default: false
+permissions:
+  contents: write   # releases
+  actions: read     # list runs, download their artifacts
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Archive days from past run artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUNS: ${{ inputs.runs }}
+          OVERWRITE: ${{ inputs.overwrite }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -u
+          archived=0; skipped=0; missing=0
+          for id in $(gh run list -R "$REPO" --workflow daily_sentiment.yml --status success -L "$RUNS" --json databaseId -q '.[].databaseId'); do
+            dir="tmp/$id"
+            if ! gh run download "$id" -R "$REPO" -n "sentiment-$id" -D "$dir" 2>/dev/null; then
+              echo "run $id: no artifact (expired or never uploaded)"; missing=$((missing + 1)); continue
+            fi
+            for day in "$dir"/data/news/*/; do
+              [ -d "$day" ] || continue
+              D=$(basename "$day")
+              tag="news-archive-${D:0:7}"
+              if [ "$OVERWRITE" != "true" ] && gh release view "$tag" -R "$REPO" --json assets -q '.assets[].name' 2>/dev/null | grep -qx "news_$D.zip"; then
+                echo "$D: already archived"; skipped=$((skipped + 1)); continue
+              fi
+              EXTRAS=(); [ -f "$dir/logs/daily.log" ] && EXTRAS+=(--extra "$dir/logs/daily.log")
+              python archive_release.py pack --date "$D" --root "$dir" --out-dir archive "${EXTRAS[@]}" --upload && archived=$((archived + 1))
+            done
+            rm -rf "$dir"
+          done
+          echo "### archive-backfill: $archived day(s) archived, $skipped already there, $missing run(s) without an artifact" | tee -a "$GITHUB_STEP_SUMMARY"

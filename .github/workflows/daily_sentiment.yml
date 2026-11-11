@@ -10,10 +10,15 @@
 # (Google is rate-limited to ~1 query/s), so wrsi's eod must run AFTER it - see the README.
 # GitHub's cron can start 10-30 minutes late; the filter fails open if the CSV isn't there.
 #
-# Scoring: headline + summary (--with-body --units title,summary). --with-body decodes Google
-# News links and fetches each kept article's page for its summary (og:description); that adds
-# about one request per kept media article, so the run takes longer than headline-only.
-# To go back to headlines only, remove those two options (EXTRA "--units title" also overrides).
+# Scoring: --with-body decodes Google News links and fetches each kept article's page, which
+# gives the summary (og:description) and body (main text). GATE_UNITS below decides what the
+# gate CSV is scored on: "all" = title 0.5 + summary 0.3 + body 0.2, "title,summary", or
+# "title" (the setting the Jan-Sep 2026 backtest validated). Headline-only scores are computed
+# every day as well (data/sentiment_title, archived), so the two can be compared later.
+#
+# Archive: each trading day's news (title, summary, body, url, times) and both sentiment sets
+# are zipped and attached to a monthly GitHub Release (tag news-archive-YYYY-MM), permanently.
+# Restore with:  python archive_release.py restore --start 2026-11-01 --end 2026-11-30
 name: daily-sentiment
 on:
   workflow_dispatch:
@@ -25,10 +30,11 @@ on:
         description: "extra run_pipeline options, e.g. --workers 4 (added last, so they override)"
         required: false
 concurrency: {group: daily-sentiment, cancel-in-progress: false}
-permissions: {contents: read}
+permissions: {contents: write}   # write: creating releases and uploading the daily archive
 env:
   TZ: Asia/Kolkata
   HF_HUB_DISABLE_TELEMETRY: "1"
+  GATE_UNITS: all                  # what the gate CSV is scored on: all | title,summary | title
 jobs:
   sentiment:
     runs-on: ubuntu-latest
@@ -65,6 +71,7 @@ jobs:
           restore-keys: reference-
 
       - name: Scrape, score, export
+        id: daily
         env:
           DATE_IN: ${{ inputs.date }}
           EXTRA: ${{ inputs.extra }}
@@ -73,7 +80,7 @@ jobs:
           python daily_sentiment.py "${ARGS[@]}" \
             --wrsi-universe wrsi/config/universe.json --list nifty500 \
             --out-dir wrsi/sentiment_gate \
-            -- --workers 4 --log-file logs/daily.log --with-body --units title,summary $EXTRA
+            -- --workers 4 --log-file logs/daily.log --with-body --units "$GATE_UNITS" $EXTRA
 
       - name: Commit CSV to wrsi_trader_new
         working-directory: wrsi
@@ -86,7 +93,30 @@ jobs:
           for i in 1 2 3 4 5; do git pull --rebase && git push && exit 0; sleep $((i * 10)); done
           exit 1
 
-      # Raw news + per-ticker sentiment for debugging or later re-scoring (kept 90 days).
+      # Headline-only scores alongside the gate's, for later comparison (cheap: titles only).
+      - name: Headline-only sentiment (for the archive)
+        if: steps.daily.outputs.trading_day == 'true'
+        env: {D: "${{ steps.daily.outputs.date }}"}
+        run: |
+          python -m sentiment_engine run --date "$D" --units title --output-dir data/sentiment_title
+          python -m sentiment_backtest.export --start "$D" --sentiment-dir data/sentiment_title \
+            --out "archive_extras/sentiment_title_$D.csv"
+
+      # Permanent archive: one zip per trading day on a monthly release.
+      - name: Archive the day to a GitHub Release
+        if: always() && steps.daily.outputs.trading_day == 'true'
+        env:
+          D: ${{ steps.daily.outputs.date }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          EXTRAS=()
+          for f in "wrsi/sentiment_gate/sentiment_$D.csv" "archive_extras/sentiment_title_$D.csv" logs/daily.log; do
+            if [ -f "$f" ]; then EXTRAS+=(--extra "$f"); fi
+          done
+          python archive_release.py pack --date "$D" "${EXTRAS[@]}" --upload
+          echo "- archived: release \`news-archive-${D:0:7}\`, asset \`news_$D.zip\`" >> "$GITHUB_STEP_SUMMARY"
+
+      # Short-lived copy for debugging a run; the release above is the permanent record.
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -94,6 +124,7 @@ jobs:
           path: |
             data/news
             data/sentiment
+            data/sentiment_title
             logs
-          retention-days: 90
+          retention-days: 14
           if-no-files-found: ignore
