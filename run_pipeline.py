@@ -433,6 +433,7 @@ def build_parser() -> argparse.ArgumentParser:
     body.add_argument("--with-body", action="store_true",
                       help="fetch article pages for summary/body (off by default; slower, hits paywalls)")
     body.add_argument("--no-body", action="store_true", help="(default) skip article pages; kept for older scripts")
+    p.add_argument("--csv", action="store_true", help="also write <SYMBOL>.csv (one row per article) next to each news JSON")
     p.add_argument("--model", help="sentiment model id (default ProsusAI/finbert)")
     p.add_argument("--device", choices=["auto", "cuda", "cpu"])
     p.add_argument("--batch-size", type=int)
@@ -520,6 +521,8 @@ def _main(args) -> int:
         overrides["enabled_sources"] = [s.strip() for s in args.sources.split(",") if s.strip()]
     if args.workers:
         overrides["max_workers"] = args.workers
+    if args.csv:
+        overrides["write_csv"] = True
     if args.with_body:
         overrides["fetch_article_body"] = True
     elif args.no_body:
@@ -593,6 +596,13 @@ def _main(args) -> int:
     for r in rows:
         counts[r["status"]] = counts.get(r["status"], 0) + 1
     incomplete = sum(len(r.incomplete) for r in results)
+    if args.csv:
+        # Per-ticker CSVs are written as each ticker finishes; this adds any that --skip-existing
+        # skipped (or that predate --csv) and the combined _articles.csv for each date.
+        from news_scraper.csv_export import export as export_csv
+
+        st = export_csv(settings.output_dir, args.start, end)
+        print(f"csv:       {st['written']} file(s) written ({st['rows']} articles over {st['dates']} date(s))")
     print(f"\n--- finished {now_ist().isoformat(timespec='seconds')}")
     print("status: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
           + f"; incomplete ticker-dates={incomplete}")

@@ -66,6 +66,9 @@ class Settings:
     holidays_file: Path = PROJECT_DIR / "config" / "nse_holidays.txt"
     # Placeholders: {symbol} (NSE symbol), {bse_code}, {isin}
     filename_format: str = "{symbol}.json"
+    # Also write <name>.csv (one row per article) next to each JSON. JSON is always written:
+    # re-runs merge into it and the sentiment engine reads it.
+    write_csv: bool = False
 
     # ---- time window -------------------------------------------------------
     # "session":  previous trading day's close -> this date's close. Everything that

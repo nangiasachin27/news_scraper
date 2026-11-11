@@ -4,6 +4,7 @@
   python -m news_scraper run --universe universe.txt            # date defaults to today (IST)
   python -m news_scraper run --tickers INFY --sources nse_announcements,google_news
   python -m news_scraper refresh-reference                     # NSE/BSE lists + holidays
+  python -m news_scraper export-csv --start 2026-11-02 --end 2026-11-06   # CSV from scraped JSON
   python -m news_scraper diagnose                              # probe every upstream endpoint
   python -m news_scraper resolve M&M
   python -m news_scraper sources
@@ -69,6 +70,17 @@ def _build_parser() -> argparse.ArgumentParser:
                       help="fetch article pages for summary/body (off by default; slower, hits paywalls)")
     body.add_argument("--no-body", action="store_true", help="(default) skip article pages; kept for older scripts")
     r.add_argument("--no-merge", action="store_true", help="overwrite instead of merging with an existing file")
+    r.add_argument("--csv", action="store_true", help="also write <SYMBOL>.csv (one row per article) next to each JSON")
+
+    ex = sub.add_parser("export-csv", parents=[common],
+                        help="CSV from already-scraped news JSON: per ticker + _articles.csv per date, or one --out file")
+    ex.add_argument("--start", type=_parse_date, required=True, help="YYYY-MM-DD")
+    ex.add_argument("--end", type=_parse_date, help="YYYY-MM-DD, inclusive (default: --start)")
+    ex.add_argument("--tickers", nargs="+", metavar="TICKER", help="only these tickers (default: all in each folder)")
+    ex.add_argument("--output-dir", type=Path, help="news folder to read (default: data/news)")
+    ex.add_argument("--out", type=Path, help="write ONE CSV for the whole range here instead of per-folder files")
+    ex.add_argument("--no-combined", action="store_true", help="skip the per-date _articles.csv")
+    ex.add_argument("--force", action="store_true", help="rewrite per-ticker CSVs even if newer than the JSON")
 
     sub.add_parser("refresh-reference", parents=[common], help="re-download NSE/BSE lists and NSE holidays")
     sub.add_parser("diagnose", parents=[common], help="probe every upstream endpoint and report status")
@@ -91,6 +103,19 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{marker} {name}")
         print("\n* = enabled by default")
         return 0
+
+    if args.cmd == "export-csv":
+        from .csv_export import export
+
+        end = args.end or args.start
+        if args.start > end:
+            print("error: --start is after --end", file=sys.stderr)
+            return 2
+        st = export(args.output_dir or settings.output_dir, args.start, end, args.tickers,
+                    combined=not args.no_combined, force=args.force, out=args.out)
+        print(f"{st['rows']} articles from {st['files']} file(s) over {st['dates']} date(s); "
+              f"{st['written']} CSV file(s) written" + (f" -> {args.out}" if args.out else ""))
+        return 0 if st["files"] else 1
 
     http = HttpClient(settings)
 
@@ -140,6 +165,8 @@ def main(argv: list[str] | None = None) -> int:
         overrides["fetch_article_body"] = False
     if args.no_merge:
         overrides["merge_existing"] = False
+    if args.csv:
+        overrides["write_csv"] = True
     if args.sources:
         overrides["enabled_sources"] = [s.strip() for s in args.sources.split(",") if s.strip()]
     settings = replace(settings, **overrides)

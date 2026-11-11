@@ -24,7 +24,8 @@ from .textutils import story_tokens
 from .sources import build_sources
 from .ticker_resolver import TickerResolver
 from .timeutils import IST, compute_window, load_holidays, now_ist
-from .writer import merge_with_existing, output_path, reuse_enrichment, sort_articles, trim_to_window, write_json
+from .writer import (article_rows, csv_path_for, merge_with_existing, output_path, reuse_enrichment, sort_articles,
+                     trim_to_window, write_csv_rows, write_json)
 
 log = logging.getLogger(__name__)
 
@@ -132,6 +133,11 @@ class NewsPipeline:
             "articles": final,
         }
         write_json(path, payload)
+        if self.settings.write_csv:
+            try:
+                write_csv_rows(csv_path_for(path), article_rows(payload))
+            except OSError as exc:  # the JSON is the record; a CSV failure must not fail the ticker
+                log.warning("%s: CSV not written (%s)", info.symbol, exc)
         summary = TickerRunSummary(
             ticker=info.symbol,
             ok=True,

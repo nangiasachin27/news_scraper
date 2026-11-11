@@ -1,10 +1,12 @@
-"""Output layout: <output_dir>/<YYYY-MM-DD>/<filename_format>.json
+"""Output layout: <output_dir>/<YYYY-MM-DD>/<filename_format>.json (+ optional <name>.csv)
 
 Writes are atomic (temp file + os.replace), so a downstream reader never sees a
 half-written file even if a run is killed. ``os.replace`` is atomic on NTFS too.
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
 import os
@@ -15,7 +17,7 @@ from typing import Any
 
 from .config import Settings
 from .models import TickerInfo
-from .timeutils import normalize_article_time
+from .timeutils import is_date_only, normalize_article_time
 
 log = logging.getLogger(__name__)
 
@@ -127,3 +129,66 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
         fh.flush()
         os.fsync(fh.fileno())
     os.replace(tmp, path)
+
+
+# ---- CSV ---------------------------------------------------------------------------------
+# JSON stays the stored format (re-runs merge into it, the sentiment engine reads it); CSV is
+# a flat view of the same articles for spreadsheets and other tools. One row per article.
+# Lists are joined with "; ". Nested data (attachments, full meta) stays JSON-only.
+ARTICLE_CSV_FIELDS = [
+    "date", "symbol", "id", "published_at", "time_precision", "source", "source_type", "publisher",
+    "category", "impact_tier", "relevance_score", "tags", "title", "summary", "body", "url",
+    "also_reported_by", "matched_terms", "text_source", "attachments", "first_seen_at",
+]
+
+
+def _time_precision(a: dict[str, Any]) -> str:
+    flag = (a.get("meta") or {}).get("time_precision")
+    if flag:
+        return flag
+    try:
+        if a.get("source_type") == "news" and is_date_only(datetime.fromisoformat(a["published_at"])):
+            return "date"
+    except (KeyError, TypeError, ValueError):
+        pass
+    return "exact"
+
+
+def article_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flat CSV rows (ARTICLE_CSV_FIELDS) for one news JSON payload."""
+    sym = (payload.get("ticker") or {}).get("symbol", "")
+    join = lambda v: "; ".join(str(x) for x in v or [])  # noqa: E731
+    rows = []
+    for a in payload.get("articles", []):
+        meta = a.get("meta") or {}
+        rows.append({
+            "date": payload.get("date", ""), "symbol": sym, "id": a.get("id", ""),
+            "published_at": a.get("published_at", ""), "time_precision": _time_precision(a),
+            "source": a.get("source", ""), "source_type": a.get("source_type", ""),
+            "publisher": a.get("publisher") or "", "category": a.get("category") or "",
+            "impact_tier": a.get("impact_tier") or "", "relevance_score": a.get("relevance_score", ""),
+            "tags": join(a.get("tags")), "title": a.get("title") or "", "summary": a.get("summary") or "",
+            "body": a.get("body") or "", "url": a.get("url") or "",
+            "also_reported_by": join(a.get("also_reported_by")), "matched_terms": join(a.get("matched_terms")),
+            "text_source": meta.get("text_source") or "",
+            "attachments": join(x.get("url") for x in a.get("attachments") or [] if isinstance(x, dict)),
+            "first_seen_at": a.get("first_seen_at") or "",
+        })
+    return rows
+
+
+def write_csv_rows(path: Path, rows: list[dict[str, Any]], fields: list[str] = ARTICLE_CSV_FIELDS) -> None:
+    """Atomic write, UTF-8 with BOM so Excel shows Hindi/rupee characters correctly."""
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore", lineterminator="\n")
+    w.writeheader()
+    w.writerows(rows)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8-sig", newline="") as fh:
+        fh.write(buf.getvalue())
+    os.replace(tmp, path)
+
+
+def csv_path_for(json_path: Path) -> Path:
+    return json_path.with_suffix(".csv")

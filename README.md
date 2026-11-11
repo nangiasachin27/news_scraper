@@ -354,3 +354,31 @@ artifact. Setup:
 3. Run it once with *Run workflow* and read the job summary. NSE and BSE often block cloud IPs.
    If their sources fail for most tickers, filings are missing from the signal; a self-hosted
    runner on your own PC avoids that.
+
+## CSV output
+
+The news JSON is always written: re-runs merge into it, `--skip-existing` checks it, and the
+sentiment engine reads it. CSV is an extra, flat view of the same articles, one row per
+article:
+
+`date, symbol, id, published_at, time_precision, source, source_type, publisher, category,
+impact_tier, relevance_score, tags, title, summary, body, url, also_reported_by,
+matched_terms, text_source, attachments, first_seen_at`
+
+Lists are joined with `"; "`. Nested data (attachment text, full `meta`) stays in the JSON.
+Files are UTF-8 with a BOM, so Excel shows ₹ and Hindi text correctly.
+
+```powershell
+# while scraping: <SYMBOL>.csv next to each JSON (+ _articles.csv per date with run_pipeline)
+python -m news_scraper run --tickers TCS INFY --date 2026-11-06 --csv
+python run_pipeline.py --start 2026-11-02 --end 2026-11-06 --tickers TCS INFY --csv
+
+# from data already scraped
+python -m news_scraper export-csv --start 2026-11-02 --end 2026-11-06            # per ticker + _articles.csv per date
+python -m news_scraper export-csv --start 2026-01-01 --end 2026-09-22 --tickers TCS --out tcs_2026.csv   # one file
+```
+
+`export-csv` rewrites a per-ticker CSV only when it's missing or older than its JSON
+(`--force` rewrites all). `--no-combined` skips `_articles.csv`. In the daily GitHub workflow,
+put `--csv` in the *extra* field (or in the workflow's `--` options) to keep CSVs in the
+artifact.
